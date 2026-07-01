@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import BinaryIO, Iterator, Protocol
 
-from lake_agent.domain.models import DiscoveredObject, ObjectLocator
+from lake_agent.domain.models import FileMetadata
 
 
 class ObjectStore(Protocol):
@@ -10,17 +10,16 @@ class ObjectStore(Protocol):
 
     def list_objects(
         self,
-        bucket: str,
         prefix: str = "",
-    ) -> Iterator[DiscoveredObject]: ...
+    ) -> Iterator[FileMetadata]: ...
 
-    def stat_object(self, locator: ObjectLocator) -> DiscoveredObject: ...
+    def stat_object(self, obj: FileMetadata) -> FileMetadata: ...
 
     def read_range(
         self,
-        locator: ObjectLocator,
+        obj: FileMetadata,
         offset: int,
         length: int,
     ) -> bytes: ...
 
-    def stream_object(self, locator: ObjectLocator) -> BinaryIO: ...
+    def stream_object(self, obj: FileMetadata) -> BinaryIO: ...

@@ -18,10 +18,7 @@ class Modality(str, Enum):
 
 
 class FileStatus(str, Enum):
-    DISCOVERED = "discovered"
     IDENTIFIED = "identified"
     UNSUPPORTED = "unsupported"
     MISSING = "missing"
-    COMPLETED = "completed"
-    FAILED = "failed"
     ERROR = "error"

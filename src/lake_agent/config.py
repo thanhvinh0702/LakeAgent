@@ -12,35 +12,13 @@ def _required_env(name: str) -> str:
     return value
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 @dataclass(frozen=True, slots=True)
-class MinioSettings:
-    endpoint: str
-    access_key: str
-    secret_key: str
-    secure: bool
-    bucket: str
+class LocalSettings:
+    datalake_dir: str
 
     @classmethod
-    def from_env(cls) -> "MinioSettings":
-        endpoint = os.getenv("MINIO_ENDPOINT")
-        if not endpoint:
-            host = os.getenv("MINIO_HOST", "localhost")
-            port = os.getenv("MINIO_PORT", "9000")
-            endpoint = f"{host}:{port}"
-        return cls(
-            endpoint=endpoint,
-            access_key=_required_env("MINIO_USER"),
-            secret_key=_required_env("MINIO_PASSWORD"),
-            secure=_env_bool("MINIO_SECURE", False),
-            bucket=os.getenv("MINIO_BUCKET", "datalake"),
-        )
+    def from_env(cls) -> "LocalSettings":
+        return cls(datalake_dir=_required_env("DATALAKE_DIR"))
 
 
 @dataclass(frozen=True, slots=True)

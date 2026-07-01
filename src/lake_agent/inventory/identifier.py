@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import mimetypes
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from lake_agent.domain.enums import Modality
-from lake_agent.domain.models import DiscoveredObject, IdentificationResult
+from lake_agent.domain.models import FileMetadata
 from lake_agent.storage.base import ObjectStore
 
 
@@ -90,9 +90,9 @@ class ObjectIdentifier:
         self._store = store
         self._sample_size = sample_size
 
-    def identify(self, obj: DiscoveredObject) -> IdentificationResult:
+    def identify(self, obj: FileMetadata) -> FileMetadata:
         sample = self._store.read_range(
-            obj.locator,
+            obj,
             offset=0,
             length=min(self._sample_size, obj.size_bytes),
         )
@@ -127,13 +127,13 @@ class ObjectIdentifier:
             warnings.append("Format was not recognized from signature or extension.")
 
         encoding = _detect_encoding(sample) if info.modality in _TEXT_MODALITIES else None
-        return IdentificationResult(
-            locator=obj.locator,
+        return replace(
+            obj,
             detected_mime_type=info.mime_type,
             detected_format=info.format_name,
             modality=info.modality,
             encoding=encoding,
-            confidence=confidence,
+            identification_confidence=confidence,
             warnings=tuple(warnings),
         )
 
