@@ -166,13 +166,13 @@ class TabularIndexRepository:
                 source_id, relative_path, filename, file_format,
                 size_bytes, last_modified, parser_version, parse_warnings,
                 workbook_sheet_descriptions, file_summary, file_keywords,
-                lexical_text, semantic_text, status, error_message,
+                file_search_text, status, error_message,
                 first_indexed_at, last_indexed_at, is_present
             ) VALUES (
                 %s, %s, %s, %s,
                 %s, %s, %s, %s::jsonb,
                 %s::jsonb, %s, %s::jsonb,
-                %s, %s, %s, %s,
+                %s, %s, %s,
                 %s, %s, %s
             )
             ON CONFLICT (relative_path) DO UPDATE SET
@@ -186,8 +186,7 @@ class TabularIndexRepository:
                 workbook_sheet_descriptions = EXCLUDED.workbook_sheet_descriptions,
                 file_summary = EXCLUDED.file_summary,
                 file_keywords = EXCLUDED.file_keywords,
-                lexical_text = EXCLUDED.lexical_text,
-                semantic_text = EXCLUDED.semantic_text,
+                file_search_text = EXCLUDED.file_search_text,
                 status = EXCLUDED.status,
                 error_message = EXCLUDED.error_message,
                 last_indexed_at = EXCLUDED.last_indexed_at,
@@ -206,8 +205,7 @@ class TabularIndexRepository:
                 json.dumps(result.workbook_sheet_descriptions),
                 result.file_summary,
                 json.dumps(result.file_keywords),
-                result.lexical_text,
-                result.semantic_text,
+                result.file_search_text,
                 "indexed",
                 None,
                 indexed_at,

@@ -47,7 +47,6 @@ class DeterministicTabularParserTest(unittest.TestCase):
             ["customer_id", "amount", "active", "order_date"],
             table.raw_header,
         )
-        self.assertIn("sales", result.lexical_text or "")
 
     def test_tsv_parser_generates_column_names_when_header_is_missing(self) -> None:
         tsv_content = "1\talice\t10\n2\tbob\t20\n3\tcarol\t30\n"

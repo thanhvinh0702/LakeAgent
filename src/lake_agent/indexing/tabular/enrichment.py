@@ -56,7 +56,6 @@ class TabularLLMEnricher:
         payload = self._build_payload(result)
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload))
         _apply_enrichment(result, enriched, self._options)
-        result.semantic_text = _build_semantic_text(result)
         return result
 
     def _build_payload(self, result: TabularIndexResult) -> dict[str, Any]:
@@ -158,23 +157,25 @@ def _apply_enrichment(
 
     for table in result.tables:
         table.table_search_text = _build_table_search_text(table)
+    result.file_search_text = _build_file_search_text(result)
 
 
-def _build_semantic_text(result: TabularIndexResult) -> str:
-    lines: list[str] = []
+def _build_file_search_text(result: TabularIndexResult) -> str | None:
+    parts: list[str] = []
+    if result.filename:
+        parts.append(result.filename)
+    if result.relative_path:
+        parts.append(result.relative_path)
     if result.file_summary:
-        lines.append(f"File summary: {result.file_summary}")
+        parts.append(result.file_summary)
     if result.file_keywords:
-        lines.append(f"File keywords: {', '.join(result.file_keywords)}")
-
-    for table in result.tables:
-        lines.append(f"Table: {table.table_name}")
-        if table.summary:
-            lines.append(f"Table summary: {table.summary}")
-        if table.keywords:
-            lines.append(f"Table keywords: {', '.join(table.keywords)}")
-
-    return "\n".join(lines).strip()
+        parts.append(", ".join(result.file_keywords))
+    if result.workbook_sheet_descriptions:
+        for sheet_name, description in result.workbook_sheet_descriptions.items():
+            line = " | ".join(part for part in [sheet_name, description] if part)
+            if line:
+                parts.append(line)
+    return "\n".join(part for part in parts if part).strip() or None
 
 
 def _parse_enrichment_response(

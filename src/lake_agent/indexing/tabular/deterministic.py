@@ -118,7 +118,6 @@ class DeterministicTabularParser:
                 filename=path.name,
                 file_format=file_format,
                 tables=[table],
-                lexical_text=_build_lexical_text(relative_path, table),
             )
 
         table = self._build_table_profile(
@@ -135,7 +134,6 @@ class DeterministicTabularParser:
             file_format=file_format,
             tables=[table],
             parse_warnings=warnings.copy(),
-            lexical_text=_build_lexical_text(relative_path, table),
         )
 
     def _parse_xlsx(
@@ -171,9 +169,6 @@ class DeterministicTabularParser:
 
         workbook_sheet_descriptions = _annotate_workbook_context(tables)
 
-        lexical_text = "\n".join(
-            _build_lexical_text(relative_path, table) for table in tables
-        )
         return TabularIndexResult(
             source_id=source_id,
             relative_path=relative_path,
@@ -182,7 +177,6 @@ class DeterministicTabularParser:
             tables=tables,
             parse_warnings=parse_warnings,
             workbook_sheet_descriptions=workbook_sheet_descriptions,
-            lexical_text=lexical_text,
         )
 
     def _build_table_profile(
@@ -677,20 +671,5 @@ def _parse_iso_date(value: str) -> date | None:
 def _stable_id(value: str, *, prefix: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}_{digest}"
-
-
-def _build_lexical_text(relative_path: str, table: TableProfile) -> str:
-    parts = [relative_path, table.table_name]
-    if table.sheet_name:
-        parts.append(table.sheet_name)
-    if table.sheet_description:
-        parts.append(table.sheet_description)
-    parts.extend(table.raw_header)
-    parts.extend(column.name for column in table.columns)
-    for column in table.columns:
-        parts.extend(column.categorical_values[:5])
-    return "\n".join(part for part in parts if part)
-
-
 def _normalize_identifier(value: str) -> str:
     return "".join(char.lower() for char in value if char.isalnum())

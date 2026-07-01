@@ -82,6 +82,12 @@ class FakeEnricher:
             result,
             file_summary=f"Summary for {result.filename}",
             file_keywords=["tabular"],
+            file_search_text=(
+                f"{result.filename}\n"
+                f"{result.relative_path}\n"
+                f"Summary for {result.filename}\n"
+                "tabular"
+            ),
         )
         for table in result.tables:
             table.summary = f"Summary for {table.table_name}"

@@ -61,5 +61,4 @@ class TabularIndexResult:
     workbook_sheet_descriptions: dict[str, str] = field(default_factory=dict)
     file_summary: str | None = None
     file_keywords: list[str] = field(default_factory=list)
-    lexical_text: str | None = None
-    semantic_text: str | None = None
+    file_search_text: str | None = None

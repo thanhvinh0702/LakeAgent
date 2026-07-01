@@ -81,13 +81,18 @@ class TabularLLMEnricherTest(unittest.TestCase):
             enriched.file_summary,
         )
         self.assertEqual(["sales", "transactions", "customers"], enriched.file_keywords)
+        self.assertEqual(
+            "sales.csv\n"
+            "tables/sales.csv\n"
+            "Sales transactions with customer and date fields.\n"
+            "sales, transactions, customers",
+            enriched.file_search_text,
+        )
         self.assertEqual("One table of sales records.", table.summary)
         self.assertEqual(
             "customer_id | amount | order_date\nOne table of sales records.\norders, revenue",
             table.table_search_text,
         )
-        self.assertIn("File summary:", enriched.semantic_text or "")
-        self.assertIn("Table summary:", enriched.semantic_text or "")
 
     def test_llm_settings_reads_expected_env_names(self) -> None:
         previous_values = {
@@ -301,6 +306,12 @@ class TabularLLMEnricherTest(unittest.TestCase):
 
         result.file_summary = "Sales transactions for customer orders."
         result.file_keywords = ["sales", "orders"]
+        result.file_search_text = (
+            "sales.csv\n"
+            "tables/sales.csv\n"
+            "Sales transactions for customer orders.\n"
+            "sales, orders"
+        )
         result.tables[0].summary = "One table of sales records."
         result.tables[0].keywords = ["revenue", "transactions"]
         result.tables[0].table_search_text = (
@@ -318,7 +329,7 @@ class TabularLLMEnricherTest(unittest.TestCase):
         self.assertEqual("table", table_document.metadata["record_type"])
         self.assertEqual(result.tables[0].table_id, table_document.metadata["table_id"])
         self.assertEqual("tables/sales.csv", table_document.metadata["relative_path"])
-        self.assertIn("Sales transactions for customer orders.", file_document.page_content)
+        self.assertEqual(result.file_search_text, file_document.page_content)
         self.assertIn("customer_id | amount | order_date", table_document.page_content)
 
 

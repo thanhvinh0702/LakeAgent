@@ -50,11 +50,10 @@ def build_pgvector_store(
 def build_tabular_documents(result: TabularIndexResult) -> list[Document]:
     documents: list[Document] = []
 
-    file_page_content = _file_page_content(result)
-    if file_page_content:
+    if result.file_search_text:
         documents.append(
             Document(
-                page_content=file_page_content,
+                page_content=result.file_search_text,
                 metadata={
                     "record_type": "file",
                     "source_id": result.source_id,
@@ -128,18 +127,6 @@ def _document_id(document: Document) -> str:
         return f"{metadata['source_id']}:file"
 
     return str(metadata["table_id"])
-
-
-def _file_page_content(result: TabularIndexResult) -> str | None:
-    parts: list[str] = []
-
-    if result.file_summary:
-        parts.append(result.file_summary)
-
-    if result.file_keywords:
-        parts.append(", ".join(result.file_keywords))
-
-    return "\n\n".join(part for part in parts if part).strip() or None
 
 
 def _table_page_content(table: TableProfile) -> str | None:
