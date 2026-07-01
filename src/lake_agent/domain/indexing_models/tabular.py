@@ -14,14 +14,11 @@ ScalarType = Literal[
     "unknown",
 ]
 
-ColumnRole = Literal["dimension", "metric", "date", "id", "unknown"]
-
 TableFormat = Literal["csv", "tsv", "xls", "xlsx"]
 
 
 @dataclass(slots=True)
 class ColumnProfile:
-    # deterministic
     name: str
     ordinal: int
     inferred_type: ScalarType = "unknown"
@@ -29,36 +26,31 @@ class ColumnProfile:
     distinct_ratio: float | None = None
     sample_values: list[str] = field(default_factory=list)
     categorical_values: list[str] = field(default_factory=list)
-    # llm enrich
-    semantic_label: str | None = None
-    description: str | None = None
-    aliases: list[str] = field(default_factory=list)
-    role: ColumnRole = "unknown"
     warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class TableProfile:
-    # deterministic
     table_id: str
     table_name: str
     sheet_name: str | None = None
+    is_context_sheet: bool = False
+    sheet_description: str | None = None
     header_row_index: int | None = None
+    context_before_header: list[list[str]] = field(default_factory=list)
     raw_header: list[str] = field(default_factory=list)
     row_count: int | None = None
     column_count: int = 0
     columns: list[ColumnProfile] = field(default_factory=list)
     preview_rows: list[list[str]] = field(default_factory=list)
-    # llm enrich
     summary: str | None = None
-    business_purpose: str | None = None
     keywords: list[str] = field(default_factory=list)
+    table_search_text: str | None = None
     warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class TabularIndexResult:
-    # deterministic
     source_id: str
     relative_path: str
     filename: str
@@ -66,7 +58,7 @@ class TabularIndexResult:
     tables: list[TableProfile] = field(default_factory=list)
     parser_version: str = "v1"
     parse_warnings: list[str] = field(default_factory=list)
-    # llm enrich
+    workbook_sheet_descriptions: dict[str, str] = field(default_factory=dict)
     file_summary: str | None = None
     file_keywords: list[str] = field(default_factory=list)
     lexical_text: str | None = None

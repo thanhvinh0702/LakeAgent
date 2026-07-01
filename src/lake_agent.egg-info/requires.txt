@@ -1,0 +1,7 @@
+langchain<0.4,>=0.3
+langchain-postgres<0.1,>=0.0.15
+langchain-openai<0.4,>=0.3
+minio<8,>=7.2
+pydantic<3,>=2.0
+psycopg[binary]<4,>=3.2
+python-dotenv<2,>=1.0

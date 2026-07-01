@@ -23,6 +23,20 @@ _XML_NS = {
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
     "docrel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
+_CONTEXT_SHEET_NAME_KEYWORDS = {
+    "readme",
+    "index",
+    "contents",
+    "overview",
+    "description",
+    "descriptions",
+    "summary",
+    "legend",
+    "notes",
+    "dictionary",
+}
+_SHEET_HEADER_TOKENS = {"sheet", "worksheet", "tab"}
+_DESCRIPTION_HEADER_TOKENS = {"description", "summary", "content", "meaning", "notes"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +169,8 @@ class DeterministicTabularParser:
             parse_warnings.append("Workbook did not contain any non-empty sheets.")
             tables = [table]
 
+        workbook_sheet_descriptions = _annotate_workbook_context(tables)
+
         lexical_text = "\n".join(
             _build_lexical_text(relative_path, table) for table in tables
         )
@@ -165,6 +181,7 @@ class DeterministicTabularParser:
             file_format="xlsx",
             tables=tables,
             parse_warnings=parse_warnings,
+            workbook_sheet_descriptions=workbook_sheet_descriptions,
             lexical_text=lexical_text,
         )
 
@@ -182,7 +199,9 @@ class DeterministicTabularParser:
         header_index = self._detect_header_index(normalized_rows)
 
         raw_header: list[str] = []
+        context_before_header: list[list[str]] = []
         if header_index is not None:
+            context_before_header = _context_before_header(normalized_rows, header_index)
             raw_header = normalized_rows[header_index]
             header = _normalize_headers(raw_header)
             raw_preview_rows = normalized_rows[header_index + 1 :]
@@ -207,6 +226,7 @@ class DeterministicTabularParser:
             table_name=table_name,
             sheet_name=sheet_name,
             header_row_index=header_index,
+            context_before_header=context_before_header,
             raw_header=raw_header,
             row_count=row_count,
             column_count=len(header),
@@ -414,6 +434,86 @@ def _normalize_row(row: list[str], width: int) -> list[str]:
     return normalized
 
 
+def _context_before_header(rows: list[list[str]], header_index: int) -> list[list[str]]:
+    if header_index <= 0:
+        return []
+
+    context_rows: list[list[str]] = []
+    for row in rows[:header_index]:
+        if any(cell.strip() for cell in row):
+            context_rows.append(row)
+    return context_rows[-3:]
+
+
+def _annotate_workbook_context(
+    tables: list[TableProfile],
+) -> dict[str, str]:
+    if not tables:
+        return {}
+
+    sheet_name_map = {
+        _normalize_identifier(table.sheet_name or table.table_name): table
+        for table in tables
+        if table.sheet_name or table.table_name
+    }
+    workbook_sheet_descriptions: dict[str, str] = {}
+    for table in tables:
+        described_sheets = _extract_sheet_descriptions(table, sheet_name_map)
+        score = _context_sheet_score(table, described_sheets)
+        if score < 4:
+            continue
+
+        table.is_context_sheet = True
+        for target_key, description in described_sheets.items():
+            target = sheet_name_map.get(target_key)
+            if target is None:
+                continue
+            target.sheet_description = description
+            workbook_sheet_descriptions[target.sheet_name or target.table_name] = description
+
+    return workbook_sheet_descriptions
+
+
+def _context_sheet_score(
+    table: TableProfile,
+    described_sheets: dict[str, str],
+) -> int:
+    score = 0
+    sheet_name = _normalize_identifier(table.sheet_name or table.table_name)
+    if sheet_name in _CONTEXT_SHEET_NAME_KEYWORDS:
+        score += 3
+
+    header_tokens = {_normalize_identifier(value) for value in table.raw_header if value.strip()}
+    if header_tokens & _SHEET_HEADER_TOKENS:
+        score += 2
+    if header_tokens & _DESCRIPTION_HEADER_TOKENS:
+        score += 2
+    if table.column_count <= 3:
+        score += 1
+    if len(described_sheets) >= 2:
+        score += 4
+    elif len(described_sheets) == 1:
+        score += 2
+    return score
+
+
+def _extract_sheet_descriptions(
+    table: TableProfile,
+    sheet_name_map: dict[str, TableProfile],
+) -> dict[str, str]:
+    descriptions: dict[str, str] = {}
+    for row in table.preview_rows:
+        if len(row) < 2:
+            continue
+        candidate_name = _normalize_identifier(row[0])
+        description = row[1].strip()
+        if not candidate_name or not description:
+            continue
+        if candidate_name in sheet_name_map:
+            descriptions[candidate_name] = description
+    return descriptions
+
+
 def _normalize_headers(raw_headers: Iterable[str]) -> list[str]:
     headers: list[str] = []
     seen: dict[str, int] = {}
@@ -583,8 +683,14 @@ def _build_lexical_text(relative_path: str, table: TableProfile) -> str:
     parts = [relative_path, table.table_name]
     if table.sheet_name:
         parts.append(table.sheet_name)
+    if table.sheet_description:
+        parts.append(table.sheet_description)
     parts.extend(table.raw_header)
     parts.extend(column.name for column in table.columns)
     for column in table.columns:
         parts.extend(column.categorical_values[:5])
     return "\n".join(part for part in parts if part)
+
+
+def _normalize_identifier(value: str) -> str:
+    return "".join(char.lower() for char in value if char.isalnum())

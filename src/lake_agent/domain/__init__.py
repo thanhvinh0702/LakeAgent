@@ -2,6 +2,8 @@
 
 from lake_agent.domain.indexing_models import (
     ColumnProfile,
+    EnrichedTableProfile,
+    EnrichedTabularResult,
     ScalarType,
     TableFormat,
     TableProfile,
@@ -10,6 +12,8 @@ from lake_agent.domain.indexing_models import (
 
 __all__ = [
     "ColumnProfile",
+    "EnrichedTableProfile",
+    "EnrichedTabularResult",
     "ScalarType",
     "TableFormat",
     "TableProfile",

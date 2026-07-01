@@ -1,0 +1,2 @@
+[console_scripts]
+lake-inventory = lake_agent.cli.inventory:main

@@ -12,6 +12,14 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class LocalSettings:
     datalake_dir: str
@@ -24,6 +32,7 @@ class LocalSettings:
 @dataclass(frozen=True, slots=True)
 class PostgresSettings:
     dsn: str
+    dsn_vector: str
 
     @classmethod
     def from_env(cls) -> "PostgresSettings":
@@ -39,5 +48,67 @@ class PostgresSettings:
             dsn=(
                 f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}"
                 f"@{host}:{port}/{quote(database, safe='')}"
+            ),
+            dsn_vector=(
+                f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}"
+                f"@{host}:{port}/{quote(database, safe='')}"
             )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LLMSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "LLMSettings":
+        api_key = _first_env("OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_API_KEY or API_KEY"
+            )
+
+        model_name = _first_env("OPENAI_MODEL_NAME", "MODEL_NAME")
+        if not model_name:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_MODEL_NAME or MODEL_NAME"
+            )
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("OPENAI_BASE_URL", "BASE_URL"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "EmbeddingSettings":
+        api_key = _first_env("OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_API_KEY or API_KEY"
+            )
+
+        model_name = _first_env(
+            "OPENAI_EMBEDDING_MODEL_NAME",
+            "EMBEDDING_MODEL_NAME",
+        )
+        if not model_name:
+            raise ValueError(
+                "Missing required environment variable: "
+                "OPENAI_EMBEDDING_MODEL_NAME, EMBEDDING_MODEL_NAME"
+            )
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("OPENAI_BASE_URL", "BASE_URL"),
         )
