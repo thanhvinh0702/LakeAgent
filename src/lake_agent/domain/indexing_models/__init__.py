@@ -1,6 +1,6 @@
-"""Domain models and enumerations used across LakeAgent."""
+"""Domain models for indexing pipelines."""
 
-from lake_agent.domain.indexing_models import (
+from lake_agent.domain.indexing_models.tabular import (
     ColumnProfile,
     ScalarType,
     TableFormat,
