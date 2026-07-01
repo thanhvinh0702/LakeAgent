@@ -4,7 +4,8 @@ from typing import Any
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
-from langchain_postgres import PGVector
+from langchain_postgres import Column, PGEngine, PGVectorStore
+from sqlalchemy.exc import ProgrammingError
 
 from lake_agent.config import EmbeddingSettings, PostgresSettings
 from lake_agent.domain.indexing_models import TableProfile, TabularIndexResult
@@ -18,22 +19,31 @@ def build_openai_embeddings(
         api_key=settings.api_key,
         base_url=settings.base_url,
         model=settings.model_name,
+        dimensions=settings.dimensions,
     )
 
 
 def build_pgvector_store(
-    collection_name: str,
+    table_name: str,
     *,
     embedding_settings: EmbeddingSettings | None = None,
     postgres_settings: PostgresSettings | None = None,
 ) -> Any:
     postgres_settings = postgres_settings or PostgresSettings.from_env()
+    embedding_settings = embedding_settings or EmbeddingSettings.from_env()
+    vector_size = _vector_size(embedding_settings)
     embeddings = build_openai_embeddings(embedding_settings)
-    return PGVector(
-        embeddings=embeddings,
-        collection_name=collection_name,
-        connection=postgres_settings.dsn_vector,
-        use_jsonb=True,
+    engine = PGEngine.from_connection_string(postgres_settings.dsn_vector)
+    _ensure_vector_table(
+        engine=engine,
+        table_name=table_name,
+        vector_size=vector_size,
+    )
+    return PGVectorStore.create_sync(
+        engine=engine,
+        embedding_service=embeddings,
+        table_name=table_name,
+        id_column="langchain_id",
     )
 
 
@@ -84,11 +94,25 @@ def build_tabular_documents(result: TabularIndexResult) -> list[Document]:
     return documents
 
 
+def build_batch_tabular_documents(results: list[TabularIndexResult]) -> list[Document]:
+    documents: list[Document] = []
+    for result in results:
+        documents.extend(build_tabular_documents(result))
+    return documents
+
+
 def add_tabular_result(
     vector_store: Any,
     result: TabularIndexResult,
 ) -> list[str]:
-    documents = build_tabular_documents(result)
+    return add_tabular_results(vector_store, [result])
+
+
+def add_tabular_results(
+    vector_store: Any,
+    results: list[TabularIndexResult],
+) -> list[str]:
+    documents = build_batch_tabular_documents(results)
     if not documents:
         return []
 
@@ -120,3 +144,31 @@ def _file_page_content(result: TabularIndexResult) -> str | None:
 
 def _table_page_content(table: TableProfile) -> str | None:
     return table.table_search_text.strip() if table.table_search_text else None
+
+
+def _vector_size(settings: EmbeddingSettings) -> int:
+    if settings.dimensions is None:
+        raise ValueError(
+            "Missing required environment variable: "
+            "OPENAI_EMBEDDING_DIMENSIONS or EMBEDDING_DIMENSIONS. "
+            "PGVectorStore needs a fixed embedding dimension to create the table."
+        )
+    return settings.dimensions
+
+
+def _ensure_vector_table(
+    *,
+    engine: PGEngine,
+    table_name: str,
+    vector_size: int,
+) -> None:
+    try:
+        engine.init_vectorstore_table(
+            table_name=table_name,
+            vector_size=vector_size,
+            id_column=Column("langchain_id", "TEXT", nullable=False),
+        )
+    except ProgrammingError as exc:
+        message = str(exc).lower()
+        if "already exists" not in message and "duplicatetable" not in message:
+            raise

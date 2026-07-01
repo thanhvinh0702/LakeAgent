@@ -38,7 +38,10 @@ class PostgresSettings:
     def from_env(cls) -> "PostgresSettings":
         explicit_dsn = os.getenv("POSTGRES_DSN")
         if explicit_dsn:
-            return cls(dsn=explicit_dsn)
+            return cls(
+                dsn=explicit_dsn,
+                dsn_vector=explicit_dsn.replace("postgresql://", "postgresql+psycopg://", 1),
+            )
         host = os.getenv("POSTGRES_DB_HOST", "localhost")
         port = os.getenv("POSTGRES_DB_PORT", "5432")
         database = os.getenv("POSTGRES_DB", "lakeagent_db")
@@ -88,6 +91,7 @@ class EmbeddingSettings:
     api_key: str
     model_name: str
     base_url: str | None = None
+    dimensions: int | None = None
 
     @classmethod
     def from_env(cls) -> "EmbeddingSettings":
@@ -111,4 +115,15 @@ class EmbeddingSettings:
             api_key=api_key,
             model_name=model_name,
             base_url=_first_env("OPENAI_BASE_URL", "BASE_URL"),
+            dimensions=_optional_int_env(
+                "OPENAI_EMBEDDING_DIMENSIONS",
+                "EMBEDDING_DIMENSIONS",
+            ),
         )
+
+
+def _optional_int_env(*names: str) -> int | None:
+    value = _first_env(*names)
+    if value is None:
+        return None
+    return int(value)

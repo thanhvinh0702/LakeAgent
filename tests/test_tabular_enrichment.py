@@ -117,11 +117,13 @@ class TabularLLMEnricherTest(unittest.TestCase):
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "OPENAI_BASE_URL": os.getenv("OPENAI_BASE_URL"),
             "OPENAI_EMBEDDING_MODEL_NAME": os.getenv("OPENAI_EMBEDDING_MODEL_NAME"),
+            "OPENAI_EMBEDDING_DIMENSIONS": os.getenv("OPENAI_EMBEDDING_DIMENSIONS"),
         }
         try:
             os.environ["OPENAI_API_KEY"] = "test-key"
             os.environ["OPENAI_BASE_URL"] = "https://example.test/v1"
             os.environ["OPENAI_EMBEDDING_MODEL_NAME"] = "text-embedding-test"
+            os.environ["OPENAI_EMBEDDING_DIMENSIONS"] = "1536"
 
             settings = EmbeddingSettings.from_env()
         finally:
@@ -134,6 +136,7 @@ class TabularLLMEnricherTest(unittest.TestCase):
         self.assertEqual("test-key", settings.api_key)
         self.assertEqual("https://example.test/v1", settings.base_url)
         self.assertEqual("text-embedding-test", settings.model_name)
+        self.assertEqual(1536, settings.dimensions)
 
     def test_build_openai_embeddings_uses_embedding_settings(self) -> None:
         embeddings = build_openai_embeddings(
@@ -141,10 +144,12 @@ class TabularLLMEnricherTest(unittest.TestCase):
                 api_key="test-key",
                 base_url="https://example.test/v1",
                 model_name="text-embedding-test",
+                dimensions=1536,
             )
         )
 
         self.assertEqual("text-embedding-test", embeddings.model)
+        self.assertEqual(1536, embeddings.dimensions)
 
     def test_enricher_raises_clear_error_when_structured_output_is_missing(self) -> None:
         csv_content = "customer_id,amount\n101,12.5\n"
@@ -306,11 +311,15 @@ class TabularLLMEnricherTest(unittest.TestCase):
 
         documents = build_tabular_documents(result)
 
-        self.assertEqual(1, len(documents))
-        self.assertEqual(result.tables[0].table_id, documents[0].metadata["table_id"])
-        self.assertEqual("tables/sales.csv", documents[0].metadata["relative_path"])
-        self.assertIn("Sales transactions for customer orders.", documents[0].page_content)
-        self.assertIn("customer_id | amount | order_date", documents[0].page_content)
+        self.assertEqual(2, len(documents))
+        file_document = documents[0]
+        table_document = documents[1]
+        self.assertEqual("file", file_document.metadata["record_type"])
+        self.assertEqual("table", table_document.metadata["record_type"])
+        self.assertEqual(result.tables[0].table_id, table_document.metadata["table_id"])
+        self.assertEqual("tables/sales.csv", table_document.metadata["relative_path"])
+        self.assertIn("Sales transactions for customer orders.", file_document.page_content)
+        self.assertIn("customer_id | amount | order_date", table_document.page_content)
 
 
 def _write_multi_sheet_xlsx(

@@ -8,10 +8,10 @@ version = "0.1.0"
 description = "Multi-modal data lake inventory and question answering"
 requires-python = ">=3.11"
 dependencies = [
-    "langchain>=0.3,<0.4",
-    "langchain-postgres>=0.0.15,<0.1",
-    "langchain-openai>=0.3,<0.4",
-    "minio>=7.2,<8",
+    "langchain",
+    "langchain-postgres",
+    "langchain-openai",
+    "deepagents",
     "pydantic>=2.0,<3",
     "psycopg[binary]>=3.2,<4",
     "python-dotenv>=1.0,<2",
@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 lake-inventory = "lake_agent.cli.inventory:main"
+lake-index-tabular = "lake_agent.cli.index_tabular:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

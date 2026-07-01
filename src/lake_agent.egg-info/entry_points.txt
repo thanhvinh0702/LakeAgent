@@ -1,2 +1,3 @@
 [console_scripts]
+lake-index-tabular = lake_agent.cli.index_tabular:main
 lake-inventory = lake_agent.cli.inventory:main
