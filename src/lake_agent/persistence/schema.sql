@@ -146,3 +146,63 @@ CREATE INDEX IF NOT EXISTS idx_text_sections_source_id
 
 CREATE INDEX IF NOT EXISTS idx_text_sections_chunk_index
     ON text_sections(chunk_index);
+
+
+CREATE TABLE IF NOT EXISTS image_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    color_mode TEXT NOT NULL,
+    has_alpha BOOLEAN NOT NULL DEFAULT FALSE,
+    is_animated BOOLEAN NOT NULL DEFAULT FALSE,
+    frame_count INTEGER NOT NULL DEFAULT 1,
+    parser_version TEXT NOT NULL DEFAULT 'v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_files_relative_path
+    ON image_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_image_files_format
+    ON image_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_image_files_status
+    ON image_files(status);
+
+
+CREATE TABLE IF NOT EXISTS image_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES image_files(source_id) ON DELETE CASCADE,
+    section_type TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    line_start INTEGER,
+    line_end INTEGER,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_sections_source_id
+    ON image_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_image_sections_chunk_index
+    ON image_sections(chunk_index);

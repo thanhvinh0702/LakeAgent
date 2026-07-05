@@ -80,6 +80,9 @@ class FakeVectorStore:
 
 
 class FakeTextEnricher:
+    def __init__(self) -> None:
+        self.batch_calls = []
+
     def enrich(self, result):
         result.file_summary = f"Summary for {result.filename}"
         result.file_keywords = ["notes", "text"]
@@ -101,6 +104,10 @@ class FakeTextEnricher:
             if part
         )
         return result
+
+    def enrich_batch(self, results):
+        self.batch_calls.append([result.source_id for result in results])
+        return [self.enrich(result) for result in results]
 
 
 class DeterministicTextParserTest(unittest.TestCase):
@@ -188,12 +195,14 @@ class TextIndexingServiceTest(unittest.TestCase):
 
             repository = FakeTextRepository()
             vector_store = FakeVectorStore()
+            enricher = FakeTextEnricher()
             service = TextIndexingService(
                 root,
                 DeterministicTextParser(),
                 repository,
-                enricher=FakeTextEnricher(),
+                enricher=enricher,
                 vector_store=vector_store,
+                enrich_batch_size=2,
                 vector_batch_size=2,
             )
 
@@ -205,6 +214,8 @@ class TextIndexingServiceTest(unittest.TestCase):
         self.assertEqual(0, first["error_count"])
         self.assertGreaterEqual(first["vector_document_count"], 4)
         self.assertEqual(1, len(vector_store.batches))
+        self.assertEqual(1, len(enricher.batch_calls))
+        self.assertEqual(2, len(enricher.batch_calls[0]))
         self.assertEqual(2, second["unchanged_count"])
         self.assertEqual("Summary for a.txt", repository.saved_results[0].file_summary)
         self.assertIn("Summary for a.txt", repository.saved_results[0].sections[0].search_text)

@@ -77,6 +77,9 @@ class FakeVectorStore:
 
 
 class FakeEnricher:
+    def __init__(self) -> None:
+        self.batch_calls = []
+
     def enrich(self, result):
         result = replace(
             result,
@@ -94,6 +97,10 @@ class FakeEnricher:
             table.keywords = ["table"]
             table.table_search_text = f"{table.table_name}\n{table.summary}"
         return result
+
+    def enrich_batch(self, results):
+        self.batch_calls.append([result.source_id for result in results])
+        return [self.enrich(result) for result in results]
 
 
 class TabularIndexRepositoryTest(unittest.TestCase):
@@ -150,12 +157,14 @@ class TabularIndexingServiceTest(unittest.TestCase):
 
             repository = FakeTabularRepository()
             vector_store = FakeVectorStore()
+            enricher = FakeEnricher()
             service = TabularIndexingService(
                 root,
                 DeterministicTabularParser(),
                 repository,
-                enricher=FakeEnricher(),
+                enricher=enricher,
                 vector_store=vector_store,
+                enrich_batch_size=2,
                 vector_batch_size=2,
             )
 
@@ -169,6 +178,8 @@ class TabularIndexingServiceTest(unittest.TestCase):
         self.assertEqual(4, first["vector_document_count"])
         self.assertEqual(1, len(vector_store.batches))
         self.assertEqual(2, len(repository.saved_results))
+        self.assertEqual(1, len(enricher.batch_calls))
+        self.assertEqual(2, len(enricher.batch_calls[0]))
 
         self.assertEqual(2, second["discovered_count"])
         self.assertEqual(0, second["indexed_count"])

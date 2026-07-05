@@ -6,7 +6,11 @@ from datetime import datetime
 from typing import Any, Mapping
 
 from lake_agent.domain.enums import FileStatus
-from lake_agent.domain.indexing_models import TabularIndexResult, TextIndexResult
+from lake_agent.domain.indexing_models import (
+    ImageIndexResult,
+    TabularIndexResult,
+    TextIndexResult,
+)
 from lake_agent.domain.models import FileMetadata
 
 
@@ -535,6 +539,225 @@ class TextIndexRepository:
         self._connection.execute(
             """
             UPDATE text_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+
+class ImageIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM image_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: ImageIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO image_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, width, height, color_mode,
+                has_alpha, is_animated, frame_count, parser_version, parse_warnings,
+                file_summary, file_keywords, file_search_text, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s::jsonb,
+                %s, %s::jsonb, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                width = EXCLUDED.width,
+                height = EXCLUDED.height,
+                color_mode = EXCLUDED.color_mode,
+                has_alpha = EXCLUDED.has_alpha,
+                is_animated = EXCLUDED.is_animated,
+                frame_count = EXCLUDED.frame_count,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.width,
+                result.height,
+                result.color_mode,
+                result.has_alpha,
+                result.is_animated,
+                result.frame_count,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM image_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO image_sections (
+                    section_id, source_id, section_type, chunk_index,
+                    heading, content, line_start, line_end,
+                    char_count, search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.section_type,
+                    section.chunk_index,
+                    section.heading,
+                    section.content,
+                    section.line_start,
+                    section.line_end,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO image_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, width, height, color_mode,
+                has_alpha, is_animated, frame_count, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                0,
+                0,
+                "",
+                False,
+                False,
+                1,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM image_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE image_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE image_files
             SET is_present = FALSE,
                 status = %s,
                 updated_at = NOW()

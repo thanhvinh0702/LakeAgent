@@ -1,4 +1,5 @@
 [console_scripts]
+lake-index-image = lake_agent.cli.index_image:main
 lake-index-tabular = lake_agent.cli.index_tabular:main
 lake-index-text = lake_agent.cli.index_text:main
 lake-inventory = lake_agent.cli.inventory:main

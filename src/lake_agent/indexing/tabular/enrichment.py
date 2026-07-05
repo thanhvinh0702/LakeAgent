@@ -36,9 +36,11 @@ class TabularLLMEnricher:
     def __init__(
         self,
         invoke_enrichment: Callable[[str, str], EnrichedTabularResult],
+        invoke_batch_enrichment: Callable[[list[tuple[str, str]]], list[EnrichedTabularResult]] | None = None,
         options: TabularEnrichmentOptions | None = None,
     ) -> None:
         self._invoke_enrichment = invoke_enrichment
+        self._invoke_batch_enrichment = invoke_batch_enrichment
         self._options = options or TabularEnrichmentOptions()
 
     @classmethod
@@ -49,6 +51,7 @@ class TabularLLMEnricher:
         settings = LLMSettings.from_env()
         return cls(
             invoke_enrichment=_build_langchain_enrichment_invoker(settings),
+            invoke_batch_enrichment=_build_langchain_batch_enrichment_invoker(settings),
             options=options,
         )
 
@@ -57,6 +60,26 @@ class TabularLLMEnricher:
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload))
         _apply_enrichment(result, enriched, self._options)
         return result
+
+    def enrich_batch(self, results: list[TabularIndexResult]) -> list[TabularIndexResult]:
+        if not results:
+            return []
+        if self._invoke_batch_enrichment is None or len(results) == 1:
+            return [self.enrich(result) for result in results]
+
+        prompt_pairs = [
+            (_SYSTEM_PROMPT, _build_user_prompt(self._build_payload(result)))
+            for result in results
+        ]
+        enriched_results = self._invoke_batch_enrichment(prompt_pairs)
+        if len(enriched_results) != len(results):
+            raise RuntimeError(
+                "LLM batch enrichment returned a different number of results than inputs. "
+                f"expected={len(results)}, actual={len(enriched_results)}"
+            )
+        for result, enriched in zip(results, enriched_results, strict=True):
+            _apply_enrichment(result, enriched, self._options)
+        return results
 
     def _build_payload(self, result: TabularIndexResult) -> dict[str, Any]:
         tables: list[dict[str, Any]] = []
@@ -117,6 +140,41 @@ def _build_langchain_enrichment_invoker(
         return _parse_enrichment_response(response, settings)
 
     return invoke_enrichment
+
+
+def _build_langchain_batch_enrichment_invoker(
+    settings: LLMSettings,
+) -> Callable[[list[tuple[str, str]]], list[EnrichedTabularResult]]:
+    client = init_chat_model(
+        model_provider="openai",
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        model=settings.model_name,
+        temperature=0,
+    ).with_structured_output(
+        EnrichedTabularResult,
+        method="function_calling",
+        include_raw=True,
+    )
+
+    def invoke_batch_enrichment(
+        prompt_pairs: list[tuple[str, str]],
+    ) -> list[EnrichedTabularResult]:
+        responses = client.batch(
+            [
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt),
+                ]
+                for system_prompt, user_prompt in prompt_pairs
+            ]
+        )
+        return [
+            _parse_enrichment_response(response, settings)
+            for response in responses
+        ]
+
+    return invoke_batch_enrichment
 
 
 def _build_user_prompt(payload: dict[str, Any]) -> str:

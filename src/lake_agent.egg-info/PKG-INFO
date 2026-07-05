@@ -7,6 +7,8 @@ Requires-Dist: langchain
 Requires-Dist: langchain-postgres
 Requires-Dist: langchain-openai
 Requires-Dist: deepagents
+Requires-Dist: gradio_client<2,>=1.0
+Requires-Dist: Pillow<12,>=10.0
 Requires-Dist: pydantic<3,>=2.0
 Requires-Dist: psycopg[binary]<4,>=3.2
 Requires-Dist: python-dotenv<2,>=1.0

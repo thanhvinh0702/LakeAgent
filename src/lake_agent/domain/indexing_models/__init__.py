@@ -1,5 +1,13 @@
 """Domain models for indexing pipelines."""
 
+from lake_agent.domain.indexing_models.image import (
+    ImageFormat,
+    ImageIndexResult,
+    ImageSection,
+)
+from lake_agent.domain.indexing_models.image_enrichment import (
+    EnrichedImageResult,
+)
 from lake_agent.domain.indexing_models.tabular import (
     ColumnProfile,
     ScalarType,
@@ -22,7 +30,11 @@ from lake_agent.domain.indexing_models.tabular_enrichment import (
 
 __all__ = [
     "ColumnProfile",
+    "ImageFormat",
+    "ImageIndexResult",
+    "ImageSection",
     "EnrichedTableProfile",
+    "EnrichedImageResult",
     "EnrichedTextResult",
     "EnrichedTabularResult",
     "ScalarType",

@@ -45,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of files to flush to the vector store at once",
     )
     parser.add_argument(
+        "--enrich-batch-size",
+        type=int,
+        default=10,
+        help="Number of files to send in each tabular enrichment batch",
+    )
+    parser.add_argument(
         "--no-enrich",
         action="store_true",
         help="Skip LLM enrichment and store deterministic parse only",
@@ -60,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     _load_dotenv()
     args = build_parser().parse_args(argv)
+    if args.enrich_batch_size <= 0:
+        raise SystemExit("--enrich-batch-size must be greater than 0")
     progress_callback = None
 
     try:
@@ -82,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 repository,
                 enricher=enricher,
                 vector_store=vector_store,
+                enrich_batch_size=args.enrich_batch_size,
                 vector_batch_size=args.batch_size,
                 progress_callback=progress_callback,
             )

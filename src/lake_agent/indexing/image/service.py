@@ -5,24 +5,25 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
-from lake_agent.domain.indexing_models import TextIndexResult
-from lake_agent.indexing.text.deterministic import DeterministicTextParser
-from lake_agent.indexing.text.enrichment import TextLLMEnricher
-from lake_agent.indexing.text.vector_store import add_text_results
-from lake_agent.persistence.repositories import TextIndexRepository
+from lake_agent.domain.indexing_models import ImageIndexResult
+from lake_agent.indexing.image.deterministic import DeterministicImageParser
+from lake_agent.indexing.image.ocr import OCRMarkdownExtractor
+from lake_agent.indexing.image.vlm import ImageVLMEnricher
+from lake_agent.indexing.image.vector_store import add_image_results
+from lake_agent.persistence.repositories import ImageIndexRepository
 
-_SUPPORTED_SUFFIXES = {".txt", ".md"}
+_SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff"}
 
 
 @dataclass(frozen=True, slots=True)
-class IndexedTextFile:
+class IndexedImageFile:
     relative_path: str
     size_bytes: int
     last_modified: datetime
 
 
 @dataclass(frozen=True, slots=True)
-class TextIndexingProgress:
+class ImageIndexingProgress:
     event: str
     relative_path: str | None
     processed_count: int
@@ -35,38 +36,40 @@ class TextIndexingProgress:
 
 
 @dataclass(frozen=True, slots=True)
-class TextIndexingError:
+class ImageIndexingError:
     relative_path: str
     message: str
 
 
-class TextIndexingService:
+class ImageIndexingService:
     def __init__(
         self,
         root_dir: str | Path,
-        parser: DeterministicTextParser,
-        repository: TextIndexRepository,
+        parser: DeterministicImageParser,
+        repository: ImageIndexRepository,
         *,
-        enricher: TextLLMEnricher | None = None,
+        ocr_extractor: OCRMarkdownExtractor | None = None,
+        vlm_enricher: ImageVLMEnricher | None = None,
         vector_store: Any | None = None,
-        enrich_batch_size: int = 10,
+        vl_batch_size: int = 5,
         vector_batch_size: int = 25,
-        progress_callback: Callable[[TextIndexingProgress], None] | None = None,
+        progress_callback: Callable[[ImageIndexingProgress], None] | None = None,
     ) -> None:
-        if enrich_batch_size <= 0:
-            raise ValueError("enrich_batch_size must be positive")
+        if vl_batch_size <= 0:
+            raise ValueError("vl_batch_size must be positive")
         if vector_batch_size <= 0:
             raise ValueError("vector_batch_size must be positive")
         self._root_dir = Path(root_dir).expanduser().resolve()
         self._parser = parser
         self._repository = repository
-        self._enricher = enricher
+        self._ocr_extractor = ocr_extractor
+        self._vlm_enricher = vlm_enricher
         self._vector_store = vector_store
-        self._enrich_batch_size = enrich_batch_size
+        self._vl_batch_size = vl_batch_size
         self._vector_batch_size = vector_batch_size
         self._progress_callback = progress_callback
 
-    def run(self, prefix: str = "") -> dict[str, int | str | list[TextIndexingError]]:
+    def run(self, prefix: str = "") -> dict[str, int | str | list[ImageIndexingError]]:
         normalized_prefix = _normalize_prefix(prefix)
         indexed_at = datetime.now(timezone.utc)
         discovered_count = 0
@@ -74,12 +77,12 @@ class TextIndexingService:
         unchanged_count = 0
         error_count = 0
         vector_document_count = 0
-        errors: list[TextIndexingError] = []
-        enrich_pending: list[tuple[IndexedTextFile, TextIndexResult]] = []
-        vector_batch: list[TextIndexResult] = []
+        errors: list[ImageIndexingError] = []
         files = self._scan_files(normalized_prefix)
         total_count = len(files)
         processed_count = 0
+        pending: list[tuple[IndexedImageFile, ImageIndexResult]] = []
+        vector_batch: list[ImageIndexResult] = []
 
         self._emit_progress(
             event="start",
@@ -120,38 +123,20 @@ class TextIndexingService:
                     relative_path=indexed_file.relative_path,
                     source_id=source_id,
                 )
-                enrich_pending.append((indexed_file, result))
-                if self._enricher is None or len(enrich_pending) >= self._enrich_batch_size:
-                    try:
-                        (
-                            indexed_count,
-                            processed_count,
-                            vector_document_count,
-                        ) = self._flush_enrich_batch(
-                            enrich_pending,
-                            vector_batch=vector_batch,
-                            indexed_at=indexed_at,
-                            total_count=total_count,
-                            indexed_count=indexed_count,
-                            unchanged_count=unchanged_count,
-                            error_count=error_count,
-                            vector_document_count=vector_document_count,
-                            processed_count=processed_count,
-                        )
-                    except Exception as exc:
-                        error_count, processed_count = self._handle_pending_error_batch(
-                            enrich_pending,
-                            error_message=str(exc),
-                            indexed_at=indexed_at,
-                            total_count=total_count,
-                            indexed_count=indexed_count,
-                            unchanged_count=unchanged_count,
-                            error_count=error_count,
-                            vector_document_count=vector_document_count,
-                            processed_count=processed_count,
-                            errors=errors,
-                        )
-                    enrich_pending.clear()
+                pending.append((indexed_file, result))
+                if len(pending) >= self._pending_flush_size():
+                    indexed_count, processed_count, vector_document_count = self._flush_pending(
+                        pending,
+                        vector_batch=vector_batch,
+                        indexed_at=indexed_at,
+                        total_count=total_count,
+                        indexed_count=indexed_count,
+                        unchanged_count=unchanged_count,
+                        error_count=error_count,
+                        vector_document_count=vector_document_count,
+                        processed_count=processed_count,
+                    )
+                    pending.clear()
             except Exception as exc:
                 error_message = str(exc)
                 error_count += 1
@@ -166,7 +151,7 @@ class TextIndexingService:
                     indexed_at=indexed_at,
                 )
                 errors.append(
-                    TextIndexingError(
+                    ImageIndexingError(
                         relative_path=indexed_file.relative_path,
                         message=error_message,
                     )
@@ -184,37 +169,20 @@ class TextIndexingService:
                     message=error_message,
                 )
 
-        if enrich_pending:
-            try:
-                (
-                    indexed_count,
-                    processed_count,
-                    vector_document_count,
-                ) = self._flush_enrich_batch(
-                    enrich_pending,
-                    vector_batch=vector_batch,
-                    indexed_at=indexed_at,
-                    total_count=total_count,
-                    indexed_count=indexed_count,
-                    unchanged_count=unchanged_count,
-                    error_count=error_count,
-                    vector_document_count=vector_document_count,
-                    processed_count=processed_count,
-                )
-            except Exception as exc:
-                error_count, processed_count = self._handle_pending_error_batch(
-                    enrich_pending,
-                    error_message=str(exc),
-                    indexed_at=indexed_at,
-                    total_count=total_count,
-                    indexed_count=indexed_count,
-                    unchanged_count=unchanged_count,
-                    error_count=error_count,
-                    vector_document_count=vector_document_count,
-                    processed_count=processed_count,
-                    errors=errors,
-                )
+        if pending:
+            indexed_count, processed_count, vector_document_count = self._flush_pending(
+                pending,
+                vector_batch=vector_batch,
+                indexed_at=indexed_at,
+                total_count=total_count,
+                indexed_count=indexed_count,
+                unchanged_count=unchanged_count,
+                error_count=error_count,
+                vector_document_count=vector_document_count,
+                processed_count=processed_count,
+            )
         vector_document_count += self._flush_vector_batch(vector_batch)
+
         self._repository.mark_missing(normalized_prefix, indexed_at)
         self._emit_progress(
             event="done",
@@ -237,11 +205,11 @@ class TextIndexingService:
             "errors": errors,
         }
 
-    def _flush_enrich_batch(
+    def _flush_pending(
         self,
-        pending: list[tuple[IndexedTextFile, TextIndexResult]],
+        pending: list[tuple[IndexedImageFile, ImageIndexResult]],
         *,
-        vector_batch: list[TextIndexResult],
+        vector_batch: list[ImageIndexResult],
         indexed_at: datetime,
         total_count: int,
         indexed_count: int,
@@ -253,12 +221,34 @@ class TextIndexingService:
         if not pending:
             return indexed_count, processed_count, vector_document_count
 
-        results = [result for _, result in pending]
-        if self._enricher is not None:
-            results = self._enricher.enrich_batch(results)
+        sections_by_source: dict[str, list] = {}
+        if self._ocr_extractor is not None:
+            try:
+                sections_by_source = self._ocr_extractor.extract_sections_batch(
+                    [self._root_dir / item.relative_path for item, _ in pending],
+                    source_ids=[result.source_id for _, result in pending],
+                )
+            except Exception as exc:
+                warning = f"OCR extraction failed: {exc}"
+                for _, result in pending:
+                    result.parse_warnings.append(warning)
 
-        indexed_files = [item for item, _ in pending]
-        for indexed_file, result in zip(indexed_files, results, strict=True):
+        for indexed_file, result in pending:
+            if sections_by_source:
+                result.sections = sections_by_source.get(result.source_id, [])
+
+        if self._vlm_enricher is not None:
+            try:
+                self._vlm_enricher.enrich_batch(
+                    [self._root_dir / item.relative_path for item, _ in pending],
+                    [result for _, result in pending],
+                )
+            except Exception as exc:
+                warning = f"VLM enrichment failed: {exc}"
+                for _, result in pending:
+                    result.parse_warnings.append(warning)
+
+        for indexed_file, result in pending:
             self._repository.save(
                 result,
                 size_bytes=indexed_file.size_bytes,
@@ -266,10 +256,10 @@ class TextIndexingService:
                 indexed_at=indexed_at,
             )
             vector_batch.append(result)
-            indexed_count += 1
             if len(vector_batch) >= self._vector_batch_size:
                 vector_document_count += self._flush_vector_batch(vector_batch)
                 vector_batch.clear()
+            indexed_count += 1
             processed_count += 1
             self._emit_progress(
                 event="indexed",
@@ -281,83 +271,40 @@ class TextIndexingService:
                 error_count=error_count,
                 vector_document_count=vector_document_count,
             )
-
         return indexed_count, processed_count, vector_document_count
 
-    def _handle_pending_error_batch(
-        self,
-        pending: list[tuple[IndexedTextFile, TextIndexResult]],
-        *,
-        error_message: str,
-        indexed_at: datetime,
-        total_count: int,
-        indexed_count: int,
-        unchanged_count: int,
-        error_count: int,
-        vector_document_count: int,
-        processed_count: int,
-        errors: list[TextIndexingError],
-    ) -> tuple[int, int]:
-        for indexed_file, result in pending:
-            file_path = self._root_dir / indexed_file.relative_path
-            self._repository.save_error(
-                source_id=result.source_id,
-                relative_path=indexed_file.relative_path,
-                filename=file_path.name,
-                file_format=file_path.suffix.lower().removeprefix("."),
-                size_bytes=indexed_file.size_bytes,
-                last_modified=indexed_file.last_modified,
-                error_message=error_message,
-                indexed_at=indexed_at,
-            )
-            errors.append(
-                TextIndexingError(
-                    relative_path=indexed_file.relative_path,
-                    message=error_message,
-                )
-            )
-            error_count += 1
-            processed_count += 1
-            self._emit_progress(
-                event="error",
-                relative_path=indexed_file.relative_path,
-                processed_count=processed_count,
-                total_count=total_count,
-                indexed_count=indexed_count,
-                unchanged_count=unchanged_count,
-                error_count=error_count,
-                vector_document_count=vector_document_count,
-                message=error_message,
-            )
-        return error_count, processed_count
+    def _flush_vector_batch(self, batch: list[ImageIndexResult]) -> int:
+        if self._vector_store is None or not batch:
+            return 0
+        document_ids = add_image_results(self._vector_store, batch)
+        return len(document_ids)
 
-    def _scan_files(self, prefix: str) -> list[IndexedTextFile]:
+    def _pending_flush_size(self) -> int:
+        sizes: list[int] = []
+        if self._ocr_extractor is not None:
+            sizes.append(self._ocr_extractor.batch_size)
+        if self._vlm_enricher is not None:
+            sizes.append(self._vl_batch_size)
+        return min(sizes) if sizes else 1
+
+    def _scan_files(self, prefix: str) -> list[IndexedImageFile]:
         base_dir = self._root_dir if not prefix else (self._root_dir / prefix).resolve()
         if not base_dir.exists():
             return []
 
-        files: list[IndexedTextFile] = []
+        files: list[IndexedImageFile] = []
         for path in sorted(base_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in _SUPPORTED_SUFFIXES:
                 continue
             stat = path.stat()
             files.append(
-                IndexedTextFile(
+                IndexedImageFile(
                     relative_path=path.relative_to(self._root_dir).as_posix(),
                     size_bytes=stat.st_size,
-                    last_modified=datetime.fromtimestamp(
-                        stat.st_mtime,
-                        tz=timezone.utc,
-                    ),
+                    last_modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
                 )
             )
         return files
-
-    def _flush_vector_batch(self, batch: list[TextIndexResult]) -> int:
-        if self._vector_store is None or not batch:
-            return 0
-        document_ids = add_text_results(self._vector_store, batch)
-        return len(document_ids)
 
     def _emit_progress(
         self,
@@ -375,7 +322,7 @@ class TextIndexingService:
         if self._progress_callback is None:
             return
         self._progress_callback(
-            TextIndexingProgress(
+            ImageIndexingProgress(
                 event=event,
                 relative_path=relative_path,
                 processed_count=processed_count,
@@ -389,7 +336,7 @@ class TextIndexingService:
         )
 
 
-def _is_unchanged(previous: Any, current: IndexedTextFile) -> bool:
+def _is_unchanged(previous: Any, current: IndexedImageFile) -> bool:
     if not previous:
         return False
     if previous.get("status") != "indexed":

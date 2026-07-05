@@ -49,9 +49,12 @@ class TabularIndexingService:
         *,
         enricher: TabularLLMEnricher | None = None,
         vector_store: Any | None = None,
+        enrich_batch_size: int = 10,
         vector_batch_size: int = 25,
         progress_callback: Callable[[TabularIndexingProgress], None] | None = None,
     ) -> None:
+        if enrich_batch_size <= 0:
+            raise ValueError("enrich_batch_size must be positive")
         if vector_batch_size <= 0:
             raise ValueError("vector_batch_size must be positive")
         self._root_dir = Path(root_dir).expanduser().resolve()
@@ -59,6 +62,7 @@ class TabularIndexingService:
         self._repository = repository
         self._enricher = enricher
         self._vector_store = vector_store
+        self._enrich_batch_size = enrich_batch_size
         self._vector_batch_size = vector_batch_size
         self._progress_callback = progress_callback
 
@@ -71,7 +75,8 @@ class TabularIndexingService:
         error_count = 0
         vector_document_count = 0
         errors: list[TabularIndexingError] = []
-        batch: list[TabularIndexResult] = []
+        enrich_pending: list[tuple[IndexedFile, TabularIndexResult]] = []
+        vector_batch: list[TabularIndexResult] = []
         files = self._scan_files(normalized_prefix)
         total_count = len(files)
         processed_count = 0
@@ -115,32 +120,38 @@ class TabularIndexingService:
                     relative_path=indexed_file.relative_path,
                     source_id=source_id,
                 )
-                if self._enricher is not None:
-                    result = self._enricher.enrich(result)
-
-                self._repository.save(
-                    result,
-                    size_bytes=indexed_file.size_bytes,
-                    last_modified=indexed_file.last_modified,
-                    indexed_at=indexed_at,
-                )
-                batch.append(result)
-                indexed_count += 1
-
-                if len(batch) >= self._vector_batch_size:
-                    vector_document_count += self._flush_vector_batch(batch)
-                    batch.clear()
-                processed_count += 1
-                self._emit_progress(
-                    event="indexed",
-                    relative_path=indexed_file.relative_path,
-                    processed_count=processed_count,
-                    total_count=total_count,
-                    indexed_count=indexed_count,
-                    unchanged_count=unchanged_count,
-                    error_count=error_count,
-                    vector_document_count=vector_document_count,
-                )
+                enrich_pending.append((indexed_file, result))
+                if self._enricher is None or len(enrich_pending) >= self._enrich_batch_size:
+                    try:
+                        (
+                            indexed_count,
+                            processed_count,
+                            vector_document_count,
+                        ) = self._flush_enrich_batch(
+                            enrich_pending,
+                            vector_batch=vector_batch,
+                            indexed_at=indexed_at,
+                            total_count=total_count,
+                            indexed_count=indexed_count,
+                            unchanged_count=unchanged_count,
+                            error_count=error_count,
+                            vector_document_count=vector_document_count,
+                            processed_count=processed_count,
+                        )
+                    except Exception as exc:
+                        error_count, processed_count = self._handle_pending_error_batch(
+                            enrich_pending,
+                            error_message=str(exc),
+                            indexed_at=indexed_at,
+                            total_count=total_count,
+                            indexed_count=indexed_count,
+                            unchanged_count=unchanged_count,
+                            error_count=error_count,
+                            vector_document_count=vector_document_count,
+                            processed_count=processed_count,
+                            errors=errors,
+                        )
+                    enrich_pending.clear()
             except Exception as exc:
                 error_message = str(exc)
                 error_count += 1
@@ -173,7 +184,37 @@ class TabularIndexingService:
                     message=error_message,
                 )
 
-        vector_document_count += self._flush_vector_batch(batch)
+        if enrich_pending:
+            try:
+                (
+                    indexed_count,
+                    processed_count,
+                    vector_document_count,
+                ) = self._flush_enrich_batch(
+                    enrich_pending,
+                    vector_batch=vector_batch,
+                    indexed_at=indexed_at,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    processed_count=processed_count,
+                )
+            except Exception as exc:
+                error_count, processed_count = self._handle_pending_error_batch(
+                    enrich_pending,
+                    error_message=str(exc),
+                    indexed_at=indexed_at,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    processed_count=processed_count,
+                    errors=errors,
+                )
+        vector_document_count += self._flush_vector_batch(vector_batch)
         self._repository.mark_missing(normalized_prefix, indexed_at)
         self._emit_progress(
             event="done",
@@ -195,6 +236,100 @@ class TabularIndexingService:
             "vector_document_count": vector_document_count,
             "errors": errors,
         }
+
+    def _flush_enrich_batch(
+        self,
+        pending: list[tuple[IndexedFile, TabularIndexResult]],
+        *,
+        vector_batch: list[TabularIndexResult],
+        indexed_at: datetime,
+        total_count: int,
+        indexed_count: int,
+        unchanged_count: int,
+        error_count: int,
+        vector_document_count: int,
+        processed_count: int,
+    ) -> tuple[int, int, int]:
+        if not pending:
+            return indexed_count, processed_count, vector_document_count
+
+        results = [result for _, result in pending]
+        if self._enricher is not None:
+            results = self._enricher.enrich_batch(results)
+
+        indexed_files = [item for item, _ in pending]
+        for indexed_file, result in zip(indexed_files, results, strict=True):
+            self._repository.save(
+                result,
+                size_bytes=indexed_file.size_bytes,
+                last_modified=indexed_file.last_modified,
+                indexed_at=indexed_at,
+            )
+            vector_batch.append(result)
+            indexed_count += 1
+            if len(vector_batch) >= self._vector_batch_size:
+                vector_document_count += self._flush_vector_batch(vector_batch)
+                vector_batch.clear()
+            processed_count += 1
+            self._emit_progress(
+                event="indexed",
+                relative_path=indexed_file.relative_path,
+                processed_count=processed_count,
+                total_count=total_count,
+                indexed_count=indexed_count,
+                unchanged_count=unchanged_count,
+                error_count=error_count,
+                vector_document_count=vector_document_count,
+            )
+
+        return indexed_count, processed_count, vector_document_count
+
+    def _handle_pending_error_batch(
+        self,
+        pending: list[tuple[IndexedFile, TabularIndexResult]],
+        *,
+        error_message: str,
+        indexed_at: datetime,
+        total_count: int,
+        indexed_count: int,
+        unchanged_count: int,
+        error_count: int,
+        vector_document_count: int,
+        processed_count: int,
+        errors: list[TabularIndexingError],
+    ) -> tuple[int, int]:
+        for indexed_file, result in pending:
+            file_path = self._root_dir / indexed_file.relative_path
+            self._repository.save_error(
+                source_id=result.source_id,
+                relative_path=indexed_file.relative_path,
+                filename=file_path.name,
+                file_format=file_path.suffix.lower().removeprefix("."),
+                size_bytes=indexed_file.size_bytes,
+                last_modified=indexed_file.last_modified,
+                error_message=error_message,
+                indexed_at=indexed_at,
+            )
+            errors.append(
+                TabularIndexingError(
+                    relative_path=indexed_file.relative_path,
+                    message=error_message,
+                )
+            )
+            error_count += 1
+            processed_count += 1
+            self._emit_progress(
+                event="error",
+                relative_path=indexed_file.relative_path,
+                processed_count=processed_count,
+                total_count=total_count,
+                indexed_count=indexed_count,
+                unchanged_count=unchanged_count,
+                error_count=error_count,
+                vector_document_count=vector_document_count,
+                message=error_message,
+            )
+        return error_count, processed_count
 
     def _scan_files(self, prefix: str) -> list[IndexedFile]:
         base_dir = self._root_dir if not prefix else (self._root_dir / prefix).resolve()

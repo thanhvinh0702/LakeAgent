@@ -122,6 +122,40 @@ class EmbeddingSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class OCRSettings:
+    model_url: str
+
+    @classmethod
+    def from_env(cls) -> "OCRSettings":
+        return cls(model_url=_required_env("OCR_MODEL_URL"))
+
+
+@dataclass(frozen=True, slots=True)
+class VLSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "VLSettings":
+        api_key = _first_env("OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_API_KEY or API_KEY"
+            )
+
+        model_name = _first_env("VL_MODEL_NAME")
+        if not model_name:
+            raise ValueError("Missing required environment variable: VL_MODEL_NAME")
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("VL_BASE_URL", "OPENAI_BASE_URL", "BASE_URL"),
+        )
+
+
 def _optional_int_env(*names: str) -> int | None:
     value = _first_env(*names)
     if value is None:
