@@ -247,7 +247,12 @@ def _resize_for_vlm(image: Any, *, max_long_edge: int) -> Any:
     scale = max_long_edge / longest_edge
     resized_width = max(1, int(round(width * scale)))
     resized_height = max(1, int(round(height * scale)))
-    return image.resize((resized_width, resized_height), resample=image.Resampling.LANCZOS)
+    resampling_module = getattr(image, "Resampling", None)
+    if resampling_module is not None:
+        resample_filter = resampling_module.LANCZOS
+    else:
+        resample_filter = getattr(image, "LANCZOS", 1)
+    return image.resize((resized_width, resized_height), resample=resample_filter)
 
 
 def _encode_vlm_image(
