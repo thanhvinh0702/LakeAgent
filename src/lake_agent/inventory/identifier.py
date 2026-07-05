@@ -82,6 +82,59 @@ _TEXT_MODALITIES = {
     Modality.TABULAR,
 }
 
+_CANONICAL_EXTENSIONS: dict[str, str] = {
+    ".csv": ".csv",
+    ".tsv": ".tsv",
+    ".xls": ".xls",
+    ".xlsx": ".xlsx",
+    ".json": ".json",
+    ".jsonl": ".jsonl",
+    ".xml": ".xml",
+    ".yaml": ".yaml",
+    ".yml": ".yaml",
+    ".sql": ".sql",
+    ".db": ".db",
+    ".sqlite": ".sqlite",
+    ".sqlite3": ".sqlite",
+    ".pdf": ".pdf",
+    ".doc": ".doc",
+    ".docx": ".docx",
+    ".rtf": ".rtf",
+    ".ppt": ".ppt",
+    ".pptx": ".pptx",
+    ".txt": ".txt",
+    ".md": ".md",
+    ".html": ".html",
+    ".htm": ".html",
+    ".jpg": ".jpg",
+    ".jpeg": ".jpg",
+    ".png": ".png",
+    ".gif": ".gif",
+    ".webp": ".webp",
+    ".tif": ".tiff",
+    ".tiff": ".tiff",
+    ".mp3": ".mp3",
+    ".wav": ".wav",
+    ".m4a": ".m4a",
+    ".flac": ".flac",
+    ".ogg": ".ogg",
+    ".mp4": ".mp4",
+    ".mov": ".mov",
+    ".avi": ".avi",
+    ".mkv": ".mkv",
+    ".webm": ".webm",
+    ".zip": ".zip",
+    ".gz": ".gz",
+    ".tar": ".tar",
+    ".7z": ".7z",
+}
+
+_FORMAT_TO_EXTENSION = {
+    info.format_name: _CANONICAL_EXTENSIONS[extension]
+    for extension, info in _EXTENSIONS.items()
+    if extension in _CANONICAL_EXTENSIONS
+}
+
 
 class ObjectIdentifier:
     def __init__(self, store: ObjectStore, sample_size: int = 64 * 1024) -> None:
@@ -136,6 +189,12 @@ class ObjectIdentifier:
             identification_confidence=confidence,
             warnings=tuple(warnings),
         )
+
+
+def canonical_extension_for_format(format_name: str | None) -> str | None:
+    if not format_name:
+        return None
+    return _FORMAT_TO_EXTENSION.get(format_name)
 
 
 def _identify_signature(sample: bytes, extension: str) -> FormatInfo | None:

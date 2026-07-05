@@ -15,3 +15,6 @@ class ObjectScanner:
 
     def stat(self, obj: FileMetadata) -> FileMetadata:
         return self._store.stat_object(obj)
+
+    def rename(self, obj: FileMetadata, new_object_key: str) -> FileMetadata:
+        return self._store.rename_object(obj, new_object_key)

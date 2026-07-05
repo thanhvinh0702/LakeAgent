@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import io
+import tempfile
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 
 from lake_agent.domain.enums import Modality
 from lake_agent.domain.models import (
@@ -14,6 +16,7 @@ from lake_agent.inventory.identifier import ObjectIdentifier
 from lake_agent.inventory.scanner import ObjectScanner
 from lake_agent.inventory.service import InventoryService
 from lake_agent.persistence.repositories import InventoryRepository
+from lake_agent.storage.local_store import LocalFileStore
 
 
 class FakeObjectStore:
@@ -165,11 +168,35 @@ class InventoryServiceTest(unittest.TestCase):
         reads_after_first = store.range_reads
         second = service.run("datalake")
 
-        self.assertEqual(2, first.identified_count)
-        self.assertEqual(0, first.unchanged_count)
-        self.assertEqual(0, second.identified_count)
-        self.assertEqual(2, second.unchanged_count)
+        self.assertEqual(2, first["identified_count"])
+        self.assertEqual(0, first["unchanged_count"])
+        self.assertEqual(0, second["identified_count"])
+        self.assertEqual(2, second["unchanged_count"])
         self.assertEqual(reads_after_first, store.range_reads)
+
+    def test_inventory_renames_wrong_extension_to_detected_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            original_path = root / "docs" / "report.txt"
+            original_path.parent.mkdir(parents=True, exist_ok=True)
+            original_path.write_bytes(b"%PDF-1.7\ncontent")
+
+            repository = FakeRepository()
+            store = LocalFileStore(tmp_dir)
+            service = InventoryService(
+                ObjectScanner(store),
+                ObjectIdentifier(store),
+                repository,
+            )
+
+            result = service.run()
+
+            renamed_path = root / "docs" / "report.pdf"
+            self.assertEqual(1, result["identified_count"])
+            self.assertFalse(original_path.exists())
+            self.assertTrue(renamed_path.exists())
+            saved = repository.objects['["docs/report.pdf",""]']
+            self.assertEqual("pdf", saved["format"])
 
 
 class InventoryRepositoryTest(unittest.TestCase):

@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 lake-inventory = "lake_agent.cli.inventory:main"
 lake-index-tabular = "lake_agent.cli.index_tabular:main"
+lake-index-text = "lake_agent.cli.index_text:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

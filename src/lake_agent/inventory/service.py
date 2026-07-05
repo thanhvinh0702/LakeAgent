@@ -7,7 +7,10 @@ from typing import Any, Mapping
 
 from lake_agent.domain.enums import FileStatus
 from lake_agent.domain.models import FileMetadata
-from lake_agent.inventory.identifier import ObjectIdentifier
+from lake_agent.inventory.identifier import (
+    ObjectIdentifier,
+    canonical_extension_for_format,
+)
 from lake_agent.inventory.scanner import ObjectScanner
 from lake_agent.persistence.repositories import InventoryRepository
 
@@ -56,6 +59,7 @@ class InventoryService:
                     current_object = self._scanner.stat(listed_object)
 
                 current_object = self._identifier.identify(current_object)
+                current_object = self._rename_to_detected_extension(current_object)
                 self._repository.save(
                     replace(
                         current_object,
@@ -85,6 +89,20 @@ class InventoryService:
             "unchanged_count": unchanged_count,
             "error_count": error_count,
         }
+
+    def _rename_to_detected_extension(self, obj: FileMetadata) -> FileMetadata:
+        expected_extension = canonical_extension_for_format(obj.detected_format)
+        if not expected_extension or obj.extension == expected_extension:
+            return obj
+
+        path = PurePosixPath(obj.object_key)
+        renamed_key = path.with_suffix(expected_extension).as_posix()
+        renamed = self._scanner.rename(obj, renamed_key)
+        warnings = list(renamed.warnings)
+        warnings.append(
+            f"Renamed file extension from {obj.extension or '<none>'} to {expected_extension}."
+        )
+        return replace(renamed, warnings=tuple(warnings))
 
 
 def _is_unchanged(

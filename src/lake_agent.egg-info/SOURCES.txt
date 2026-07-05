@@ -10,6 +10,7 @@ src/lake_agent.egg-info/requires.txt
 src/lake_agent.egg-info/top_level.txt
 src/lake_agent/cli/__init__.py
 src/lake_agent/cli/index_tabular.py
+src/lake_agent/cli/index_text.py
 src/lake_agent/cli/inventory.py
 src/lake_agent/domain/__init__.py
 src/lake_agent/domain/enums.py
@@ -17,12 +18,17 @@ src/lake_agent/domain/models.py
 src/lake_agent/domain/indexing_models/__init__.py
 src/lake_agent/domain/indexing_models/tabular.py
 src/lake_agent/domain/indexing_models/tabular_enrichment.py
+src/lake_agent/domain/indexing_models/text.py
 src/lake_agent/indexing/__init__.py
 src/lake_agent/indexing/tabular/__init__.py
 src/lake_agent/indexing/tabular/deterministic.py
 src/lake_agent/indexing/tabular/enrichment.py
 src/lake_agent/indexing/tabular/service.py
 src/lake_agent/indexing/tabular/vector_store.py
+src/lake_agent/indexing/text/__init__.py
+src/lake_agent/indexing/text/deterministic.py
+src/lake_agent/indexing/text/service.py
+src/lake_agent/indexing/text/vector_store.py
 src/lake_agent/inventory/__init__.py
 src/lake_agent/inventory/identifier.py
 src/lake_agent/inventory/scanner.py
@@ -37,3 +43,4 @@ tests/test_inventory.py
 tests/test_tabular_enrichment.py
 tests/test_tabular_indexing.py
 tests/test_tabular_persistence.py
+tests/test_text_indexing.py

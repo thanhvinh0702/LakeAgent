@@ -5,15 +5,15 @@ import sys
 from typing import Callable
 
 from lake_agent.config import LocalSettings, PostgresSettings
-from lake_agent.indexing.tabular import (
-    DeterministicTabularParser,
-    TabularLLMEnricher,
-    TabularIndexingProgress,
-    TabularIndexingService,
+from lake_agent.indexing.text import (
+    DeterministicTextParser,
+    TextLLMEnricher,
+    TextIndexingProgress,
+    TextIndexingService,
     build_pgvector_store,
 )
 from lake_agent.persistence.database import PostgresDatabase
-from lake_agent.persistence.repositories import TabularIndexRepository
+from lake_agent.persistence.repositories import TextIndexRepository
 
 
 def _load_dotenv() -> None:
@@ -26,7 +26,7 @@ def _load_dotenv() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Parse, enrich, persist, and vector-index tabular files."
+        description="Parse, persist, and vector-index text files."
     )
     parser.add_argument(
         "--prefix",
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--table-name",
-        default="tabular_index",
+        default="text_index",
         help="PGVectorStore table name",
     )
     parser.add_argument(
@@ -45,14 +45,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of files to flush to the vector store at once",
     )
     parser.add_argument(
-        "--no-enrich",
-        action="store_true",
-        help="Skip LLM enrichment and store deterministic parse only",
-    )
-    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable progress output",
+    )
+    parser.add_argument(
+        "--no-enrich",
+        action="store_true",
+        help="Skip LLM enrichment and store deterministic parse only",
     )
     return parser
 
@@ -69,16 +69,16 @@ def main(argv: list[str] | None = None) -> int:
         database = PostgresDatabase(postgres_settings.dsn)
         with database.connect() as connection:
             database.initialize(connection)
-            repository = TabularIndexRepository(connection)
-            enricher = None if args.no_enrich else TabularLLMEnricher.from_env()
+            repository = TextIndexRepository(connection)
+            enricher = None if args.no_enrich else TextLLMEnricher.from_env()
             vector_store = build_pgvector_store(
                 args.table_name,
                 postgres_settings=postgres_settings,
             )
             progress_callback = None if args.no_progress else _build_progress_reporter()
-            service = TabularIndexingService(
+            service = TextIndexingService(
                 local_settings.datalake_dir,
-                DeterministicTabularParser(),
+                DeterministicTextParser(),
                 repository,
                 enricher=enricher,
                 vector_store=vector_store,
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         if progress_callback is not None:
             _close_progress_reporter(progress_callback)
-        print(f"Tabular indexing failed: {exc}", file=sys.stderr)
+        print(f"Text indexing failed: {exc}", file=sys.stderr)
         return 1
     if progress_callback is not None:
         _close_progress_reporter(progress_callback)
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def _build_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
+def _build_progress_reporter() -> Callable[[TextIndexingProgress], None]:
     try:
         from tqdm import tqdm
     except ImportError:
@@ -120,12 +120,12 @@ def _build_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
 
     progress_bar: dict[str, object] = {"bar": None}
 
-    def report(progress: TabularIndexingProgress) -> None:
+    def report(progress: TextIndexingProgress) -> None:
         if progress.event == "start":
             progress_bar["bar"] = tqdm(
                 total=progress.total_count,
                 unit="file",
-                desc="Indexing tabular files",
+                desc="Indexing text files",
             )
             return
 
@@ -157,11 +157,11 @@ def _build_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
     return report
 
 
-def _plain_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
-    def report(progress: TabularIndexingProgress) -> None:
+def _plain_progress_reporter() -> Callable[[TextIndexingProgress], None]:
+    def report(progress: TextIndexingProgress) -> None:
         if progress.event == "start":
             print(
-                f"Indexing tabular files: 0/{progress.total_count}",
+                f"Indexing text files: 0/{progress.total_count}",
                 file=sys.stderr,
             )
             return
@@ -192,7 +192,7 @@ def _plain_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
 
 
 def _close_progress_reporter(
-    reporter: Callable[[TabularIndexingProgress], None],
+    reporter: Callable[[TextIndexingProgress], None],
 ) -> None:
     close = getattr(reporter, "_close", None)
     if callable(close):

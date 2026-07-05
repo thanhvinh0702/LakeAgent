@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
 
 from lake_agent.config import LLMSettings
 from lake_agent.domain.indexing_models import (
@@ -92,7 +92,8 @@ class TabularLLMEnricher:
 def _build_langchain_enrichment_invoker(
     settings: LLMSettings,
 ) -> Callable[[str, str], EnrichedTabularResult]:
-    client = ChatOpenAI(
+    client = init_chat_model(
+        model_provider="openai",
         api_key=settings.api_key,
         base_url=settings.base_url,
         model=settings.model_name,

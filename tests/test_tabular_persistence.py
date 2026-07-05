@@ -202,6 +202,29 @@ class TabularIndexingServiceTest(unittest.TestCase):
         self.assertEqual(1, events[1].total_count)
         self.assertEqual("done", events[-1].event)
 
+    def test_service_returns_error_details_for_failed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "tables").mkdir()
+            (root / "tables" / "broken.xlsx").write_text(
+                "not a real xlsx file",
+                encoding="utf-8",
+            )
+
+            repository = FakeTabularRepository()
+            service = TabularIndexingService(
+                root,
+                DeterministicTabularParser(),
+                repository,
+            )
+
+            result = service.run("tables")
+
+        self.assertEqual(1, result["error_count"])
+        self.assertEqual(1, len(result["errors"]))
+        self.assertEqual("tables/broken.xlsx", result["errors"][0].relative_path)
+        self.assertTrue(result["errors"][0].message)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Iterator
@@ -47,6 +48,15 @@ class LocalFileStore:
         path = self._resolve_object_path(obj.object_key)
         return path.open("rb")
 
+    def rename_object(self, obj: FileMetadata, new_object_key: str) -> FileMetadata:
+        source_path = self._resolve_object_path(obj.object_key)
+        destination_path = self._resolve_destination_path(new_object_key)
+        if destination_path.exists():
+            raise FileExistsError(destination_path)
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.rename(destination_path)
+        return replace(obj, object_key=new_object_key)
+
     def _resolve_prefix(self, prefix: str) -> Path:
         if not prefix:
             return self._root_dir
@@ -61,6 +71,12 @@ class LocalFileStore:
             raise ValueError(f"Object path escapes DATALAKE_DIR: {object_key}")
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(path)
+        return path
+
+    def _resolve_destination_path(self, object_key: str) -> Path:
+        path = (self._root_dir / object_key).resolve()
+        if self._root_dir not in path.parents and path != self._root_dir:
+            raise ValueError(f"Object path escapes DATALAKE_DIR: {object_key}")
         return path
 
     def _metadata_for_path(self, path: Path) -> FileMetadata:
