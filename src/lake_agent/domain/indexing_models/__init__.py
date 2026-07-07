@@ -1,5 +1,13 @@
 """Domain models for indexing pipelines."""
 
+from lake_agent.domain.indexing_models.document import (
+    DocumentFormat,
+    DocumentIndexResult,
+    DocumentSection,
+)
+from lake_agent.domain.indexing_models.document_enrichment import (
+    EnrichedDocumentResult,
+)
 from lake_agent.domain.indexing_models.image import (
     ImageFormat,
     ImageIndexResult,
@@ -30,6 +38,10 @@ from lake_agent.domain.indexing_models.tabular_enrichment import (
 
 __all__ = [
     "ColumnProfile",
+    "DocumentFormat",
+    "DocumentIndexResult",
+    "DocumentSection",
+    "EnrichedDocumentResult",
     "ImageFormat",
     "ImageIndexResult",
     "ImageSection",

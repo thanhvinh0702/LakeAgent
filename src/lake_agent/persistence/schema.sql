@@ -148,6 +148,59 @@ CREATE INDEX IF NOT EXISTS idx_text_sections_chunk_index
     ON text_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS document_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'docling_hierarchical_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_files_relative_path
+    ON document_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_document_files_format
+    ON document_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_document_files_status
+    ON document_files(status);
+
+
+CREATE TABLE IF NOT EXISTS document_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES document_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    page_start INTEGER,
+    page_end INTEGER,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_document_sections_source_id
+    ON document_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_document_sections_chunk_index
+    ON document_sections(chunk_index);
+
+
 CREATE TABLE IF NOT EXISTS image_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,

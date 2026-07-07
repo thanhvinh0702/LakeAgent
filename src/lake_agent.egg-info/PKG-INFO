@@ -3,6 +3,7 @@ Name: lake-agent
 Version: 0.1.0
 Summary: Multi-modal data lake inventory and question answering
 Requires-Python: >=3.11
+Requires-Dist: docling
 Requires-Dist: langchain
 Requires-Dist: langchain-postgres
 Requires-Dist: langchain-openai

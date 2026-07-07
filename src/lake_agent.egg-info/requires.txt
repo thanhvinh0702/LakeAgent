@@ -1,3 +1,4 @@
+docling
 langchain
 langchain-postgres
 langchain-openai
