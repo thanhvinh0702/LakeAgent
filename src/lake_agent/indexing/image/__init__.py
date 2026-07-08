@@ -4,6 +4,11 @@ from lake_agent.indexing.image.deterministic import (
     DeterministicImageParser,
     ImageParseOptions,
 )
+from lake_agent.indexing.image.docling_ocr import (
+    DoclingOCRExtractionOptions,
+    DoclingOCRMarkdownExtractor,
+    SupportsImageOCR,
+)
 from lake_agent.indexing.image.ocr import (
     OCRExtractionOptions,
     OCRMarkdownExtractor,
@@ -28,6 +33,8 @@ from lake_agent.indexing.image.service import (
 
 __all__ = [
     "DeterministicImageParser",
+    "DoclingOCRExtractionOptions",
+    "DoclingOCRMarkdownExtractor",
     "ImageIndexingError",
     "ImageIndexingProgress",
     "ImageIndexingService",
@@ -36,6 +43,7 @@ __all__ = [
     "ImageParseOptions",
     "OCRExtractionOptions",
     "OCRMarkdownExtractor",
+    "SupportsImageOCR",
     "add_image_result",
     "add_image_results",
     "build_batch_image_documents",

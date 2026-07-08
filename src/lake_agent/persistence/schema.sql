@@ -213,6 +213,71 @@ CREATE INDEX IF NOT EXISTS idx_document_sections_chunk_index
     ON document_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS slideshow_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'docling_hierarchical_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_files_relative_path
+    ON slideshow_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_files_format
+    ON slideshow_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_files_status
+    ON slideshow_files(status);
+
+
+CREATE TABLE IF NOT EXISTS slideshow_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES slideshow_files(source_id) ON DELETE CASCADE,
+    section_type TEXT NOT NULL DEFAULT 'slide_chunk',
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    slide_start INTEGER,
+    slide_end INTEGER,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    image_id TEXT,
+    image_index INTEGER,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE slideshow_sections
+    ADD COLUMN IF NOT EXISTS section_type TEXT NOT NULL DEFAULT 'slide_chunk';
+
+ALTER TABLE slideshow_sections
+    ADD COLUMN IF NOT EXISTS image_id TEXT;
+
+ALTER TABLE slideshow_sections
+    ADD COLUMN IF NOT EXISTS image_index INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_sections_source_id
+    ON slideshow_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_slideshow_sections_chunk_index
+    ON slideshow_sections(chunk_index);
+
+
 CREATE TABLE IF NOT EXISTS image_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,

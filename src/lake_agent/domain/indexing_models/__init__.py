@@ -17,6 +17,15 @@ from lake_agent.domain.indexing_models.image import (
 from lake_agent.domain.indexing_models.image_enrichment import (
     EnrichedImageResult,
 )
+from lake_agent.domain.indexing_models.slideshow import (
+    SlideshowEmbeddedImage,
+    SlideshowFormat,
+    SlideshowIndexResult,
+    SlideshowSection,
+)
+from lake_agent.domain.indexing_models.slideshow_enrichment import (
+    EnrichedSlideshowResult,
+)
 from lake_agent.domain.indexing_models.tabular import (
     ColumnProfile,
     ScalarType,
@@ -51,7 +60,12 @@ __all__ = [
     "EnrichedImageResult",
     "EnrichedTextResult",
     "EnrichedTabularResult",
+    "EnrichedSlideshowResult",
     "ScalarType",
+    "SlideshowEmbeddedImage",
+    "SlideshowFormat",
+    "SlideshowIndexResult",
+    "SlideshowSection",
     "TableFormat",
     "TableProfile",
     "TabularIndexResult",

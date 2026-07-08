@@ -26,6 +26,7 @@ lake-index-image = "lake_agent.cli.index_image:main"
 lake-index-tabular = "lake_agent.cli.index_tabular:main"
 lake-index-text = "lake_agent.cli.index_text:main"
 lake-index-document = "lake_agent.cli.index_document:main"
+lake-index-slideshow = "lake_agent.cli.index_slideshow:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

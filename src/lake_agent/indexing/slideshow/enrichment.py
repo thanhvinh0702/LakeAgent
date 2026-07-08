@@ -9,15 +9,15 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from lake_agent.config import LLMSettings
 from lake_agent.domain.indexing_models import (
-    EnrichedTextResult,
-    TextIndexResult,
+    EnrichedSlideshowResult,
+    SlideshowIndexResult,
 )
 
 _SYSTEM_PROMPT = """
-You enrich parsed text documents for a data lake index.
+You enrich parsed slideshow files for a data lake index.
 
 Your job:
-- infer concise file-level meaning from the parsed text
+- infer concise whole-slideshow meaning from the parsed slide chunks
 - keep the output grounded in the provided content
 - do not invent facts or context not supported by the input
 - prefer short, retrieval-friendly summaries and keywords
@@ -25,28 +25,28 @@ Your job:
 
 
 @dataclass(frozen=True, slots=True)
-class TextEnrichmentOptions:
+class SlideshowEnrichmentOptions:
     keyword_limit: int = 8
     section_character_limit: int = 1200
     section_count_limit: int = 12
 
 
-class TextLLMEnricher:
+class SlideshowLLMEnricher:
     def __init__(
         self,
-        invoke_enrichment: Callable[[str, str], EnrichedTextResult],
-        invoke_batch_enrichment: Callable[[list[tuple[str, str]]], list[EnrichedTextResult]] | None = None,
-        options: TextEnrichmentOptions | None = None,
+        invoke_enrichment: Callable[[str, str], EnrichedSlideshowResult],
+        invoke_batch_enrichment: Callable[[list[tuple[str, str]]], list[EnrichedSlideshowResult]] | None = None,
+        options: SlideshowEnrichmentOptions | None = None,
     ) -> None:
         self._invoke_enrichment = invoke_enrichment
         self._invoke_batch_enrichment = invoke_batch_enrichment
-        self._options = options or TextEnrichmentOptions()
+        self._options = options or SlideshowEnrichmentOptions()
 
     @classmethod
     def from_env(
         cls,
-        options: TextEnrichmentOptions | None = None,
-    ) -> "TextLLMEnricher":
+        options: SlideshowEnrichmentOptions | None = None,
+    ) -> "SlideshowLLMEnricher":
         settings = LLMSettings.from_env()
         return cls(
             invoke_enrichment=_build_langchain_enrichment_invoker(settings),
@@ -54,13 +54,13 @@ class TextLLMEnricher:
             options=options,
         )
 
-    def enrich(self, result: TextIndexResult) -> TextIndexResult:
+    def enrich(self, result: SlideshowIndexResult) -> SlideshowIndexResult:
         payload = self._build_payload(result)
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload))
         _apply_enrichment(result, enriched, self._options)
         return result
 
-    def enrich_batch(self, results: list[TextIndexResult]) -> list[TextIndexResult]:
+    def enrich_batch(self, results: list[SlideshowIndexResult]) -> list[SlideshowIndexResult]:
         if not results:
             return []
         if self._invoke_batch_enrichment is None or len(results) == 1:
@@ -80,16 +80,36 @@ class TextLLMEnricher:
             _apply_enrichment(result, enriched, self._options)
         return results
 
-    def _build_payload(self, result: TextIndexResult) -> dict[str, Any]:
+    def _build_payload(self, result: SlideshowIndexResult) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
         sampled_sections = _sample_evenly(result.sections, self._options.section_count_limit)
         for section in sampled_sections:
-            section_payload: dict[str, Any] = {
-                "chunk_index": section.chunk_index,
-                "heading": section.heading,
-                "content": section.content[: self._options.section_character_limit],
-            }
-            sections.append(section_payload)
+            sections.append(
+                {
+                    "section_type": section.section_type,
+                    "chunk_index": section.chunk_index,
+                    "heading": section.heading,
+                    "slide_start": section.slide_start,
+                    "slide_end": section.slide_end,
+                    "content": section.content[: self._options.section_character_limit],
+                }
+            )
+
+        image_summaries: list[dict[str, Any]] = []
+        image_summary_sections = _sample_evenly(
+            [section for section in result.sections if section.section_type == "image_summary"],
+            6,
+        )
+        for section in image_summary_sections:
+            image_summaries.append(
+                {
+                    "image_index": section.image_index,
+                    "heading": section.heading,
+                    "slide_start": section.slide_start,
+                    "slide_end": section.slide_end,
+                    "summary": section.content[: self._options.section_character_limit],
+                }
+            )
 
         return {
             "source_id": result.source_id,
@@ -98,12 +118,13 @@ class TextLLMEnricher:
             "file_format": result.file_format,
             "parse_warnings": result.parse_warnings,
             "sections": sections,
+            "embedded_image_summaries": image_summaries,
         }
 
 
 def _build_langchain_enrichment_invoker(
     settings: LLMSettings,
-) -> Callable[[str, str], EnrichedTextResult]:
+) -> Callable[[str, str], EnrichedSlideshowResult]:
     client = init_chat_model(
         model_provider="openai",
         api_key=settings.api_key,
@@ -111,12 +132,12 @@ def _build_langchain_enrichment_invoker(
         model=settings.model_name,
         temperature=0,
     ).with_structured_output(
-        EnrichedTextResult,
+        EnrichedSlideshowResult,
         method="function_calling",
         include_raw=True,
     )
 
-    def invoke_enrichment(system_prompt: str, user_prompt: str) -> EnrichedTextResult:
+    def invoke_enrichment(system_prompt: str, user_prompt: str) -> EnrichedSlideshowResult:
         response = client.invoke(
             [
                 SystemMessage(content=system_prompt),
@@ -130,7 +151,7 @@ def _build_langchain_enrichment_invoker(
 
 def _build_langchain_batch_enrichment_invoker(
     settings: LLMSettings,
-) -> Callable[[list[tuple[str, str]]], list[EnrichedTextResult]]:
+) -> Callable[[list[tuple[str, str]]], list[EnrichedSlideshowResult]]:
     client = init_chat_model(
         model_provider="openai",
         api_key=settings.api_key,
@@ -138,14 +159,14 @@ def _build_langchain_batch_enrichment_invoker(
         model=settings.model_name,
         temperature=0,
     ).with_structured_output(
-        EnrichedTextResult,
+        EnrichedSlideshowResult,
         method="function_calling",
         include_raw=True,
     )
 
     def invoke_batch_enrichment(
         prompt_pairs: list[tuple[str, str]],
-    ) -> list[EnrichedTextResult]:
+    ) -> list[EnrichedSlideshowResult]:
         responses = client.batch(
             [
                 [
@@ -166,10 +187,10 @@ def _build_langchain_batch_enrichment_invoker(
 def _build_user_prompt(payload: dict[str, Any]) -> str:
     instructions = {
         "rules": [
-            "Keep summaries grounded in the provided text.",
-            "Do not invent missing context, dates, or entities.",
+            "Keep summaries grounded in the provided slideshow chunks.",
+            "Do not invent missing context, dates, entities, or citations.",
             "Prefer concise, retrieval-oriented wording.",
-            "File summary should describe what the document contains and what a user can find in it.",
+            "File summary should describe what the slideshow covers and what a user can find in it.",
             "Keywords should be concrete nouns or short phrases, not full sentences.",
         ],
         "input": payload,
@@ -178,35 +199,28 @@ def _build_user_prompt(payload: dict[str, Any]) -> str:
 
 
 def _apply_enrichment(
-    result: TextIndexResult,
-    enriched: EnrichedTextResult,
-    options: TextEnrichmentOptions,
+    result: SlideshowIndexResult,
+    enriched: EnrichedSlideshowResult,
+    options: SlideshowEnrichmentOptions,
 ) -> None:
     result.file_summary = enriched.file_summary
     result.file_keywords = enriched.file_keywords[: options.keyword_limit]
-
-    for section in result.sections:
-        section.search_text = _build_section_search_text(
-            heading=section.heading,
-            content=section.content,
-            file_summary=result.file_summary,
-        )
     result.file_search_text = _build_file_search_text(result)
 
 
 def _parse_enrichment_response(
     response: Any,
     settings: LLMSettings,
-) -> EnrichedTextResult:
-    if isinstance(response, EnrichedTextResult):
+) -> EnrichedSlideshowResult:
+    if isinstance(response, EnrichedSlideshowResult):
         return response
 
     if isinstance(response, dict) and "parsed" in response:
         parsed = response.get("parsed")
-        if isinstance(parsed, EnrichedTextResult):
+        if isinstance(parsed, EnrichedSlideshowResult):
             return parsed
         if parsed is not None:
-            return EnrichedTextResult.model_validate(parsed)
+            return EnrichedSlideshowResult.model_validate(parsed)
         raise RuntimeError(
             "LLM structured output returned no parsed result. "
             f"model={settings.model_name!r}, base_url={settings.base_url!r}, "
@@ -220,25 +234,10 @@ def _parse_enrichment_response(
             f"model={settings.model_name!r}, base_url={settings.base_url!r}."
         )
 
-    return EnrichedTextResult.model_validate(response)
+    return EnrichedSlideshowResult.model_validate(response)
 
 
-def _build_section_search_text(
-    *,
-    heading: str | None,
-    content: str,
-    file_summary: str | None,
-) -> str:
-    parts: list[str] = []
-    if heading:
-        parts.append(heading)
-    if file_summary:
-        parts.append(file_summary)
-    parts.append(content)
-    return "\n".join(part for part in parts if part).strip()
-
-
-def _build_file_search_text(result: TextIndexResult) -> str | None:
+def _build_file_search_text(result: SlideshowIndexResult) -> str | None:
     parts: list[str] = []
     if result.filename:
         parts.append(result.filename)
