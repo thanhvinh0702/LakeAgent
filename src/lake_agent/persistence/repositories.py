@@ -631,18 +631,19 @@ class DocumentIndexRepository:
             self._connection.execute(
                 """
                 INSERT INTO document_sections (
-                    section_id, source_id, chunk_index, heading,
+                    section_id, source_id, section_type, chunk_index, heading,
                     content, page_start, page_end, char_count,
-                    search_text, warnings
+                    search_text, image_id, image_index, warnings
                 ) VALUES (
+                    %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s::jsonb
+                    %s, %s, %s, %s::jsonb
                 )
                 """,
                 (
                     section.section_id,
                     result.source_id,
+                    section.section_type,
                     section.chunk_index,
                     section.heading,
                     section.content,
@@ -650,6 +651,8 @@ class DocumentIndexRepository:
                     section.page_end,
                     section.char_count,
                     section.search_text,
+                    section.image_id,
+                    section.image_index,
                     json.dumps(section.warnings),
                 ),
             )

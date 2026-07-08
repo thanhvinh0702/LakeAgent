@@ -2,6 +2,7 @@
 
 from lake_agent.domain.indexing_models.document import (
     DocumentFormat,
+    DocumentEmbeddedImage,
     DocumentIndexResult,
     DocumentSection,
 )
@@ -39,6 +40,7 @@ from lake_agent.domain.indexing_models.tabular_enrichment import (
 __all__ = [
     "ColumnProfile",
     "DocumentFormat",
+    "DocumentEmbeddedImage",
     "DocumentIndexResult",
     "DocumentSection",
     "EnrichedDocumentResult",

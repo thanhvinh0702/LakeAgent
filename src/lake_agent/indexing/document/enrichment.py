@@ -85,6 +85,7 @@ class DocumentLLMEnricher:
         for section in result.sections[: self._options.section_count_limit]:
             sections.append(
                 {
+                    "section_type": section.section_type,
                     "chunk_index": section.chunk_index,
                     "heading": section.heading,
                     "page_start": section.page_start,
@@ -93,6 +94,22 @@ class DocumentLLMEnricher:
                 }
             )
 
+        image_summaries: list[dict[str, Any]] = []
+        for section in result.sections:
+            if section.section_type != "image_summary":
+                continue
+            image_summaries.append(
+                {
+                    "image_index": section.image_index,
+                    "heading": section.heading,
+                    "page_start": section.page_start,
+                    "page_end": section.page_end,
+                    "summary": section.content[: self._options.section_character_limit],
+                }
+            )
+            if len(image_summaries) >= 6:
+                break
+
         return {
             "source_id": result.source_id,
             "relative_path": result.relative_path,
@@ -100,6 +117,7 @@ class DocumentLLMEnricher:
             "file_format": result.file_format,
             "parse_warnings": result.parse_warnings,
             "sections": sections,
+            "embedded_image_summaries": image_summaries,
         }
 
 

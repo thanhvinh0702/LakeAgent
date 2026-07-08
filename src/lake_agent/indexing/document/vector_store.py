@@ -65,10 +65,13 @@ def build_document_documents(result: DocumentIndexResult) -> list[Document]:
                     "filename": result.filename,
                     "file_format": result.file_format,
                     "section_id": section.section_id,
+                    "section_type": section.section_type,
                     "chunk_index": section.chunk_index,
                     "heading": section.heading,
                     "page_start": section.page_start,
                     "page_end": section.page_end,
+                    "image_id": section.image_id,
+                    "image_index": section.image_index,
                 },
             )
         )

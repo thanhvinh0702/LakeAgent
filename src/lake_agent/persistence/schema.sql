@@ -182,6 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_document_files_status
 CREATE TABLE IF NOT EXISTS document_sections (
     section_id TEXT PRIMARY KEY,
     source_id TEXT NOT NULL REFERENCES document_files(source_id) ON DELETE CASCADE,
+    section_type TEXT NOT NULL DEFAULT 'document_chunk',
     chunk_index INTEGER NOT NULL,
     heading TEXT,
     content TEXT NOT NULL,
@@ -189,10 +190,21 @@ CREATE TABLE IF NOT EXISTS document_sections (
     page_end INTEGER,
     char_count INTEGER NOT NULL DEFAULT 0,
     search_text TEXT,
+    image_id TEXT,
+    image_index INTEGER,
     warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE document_sections
+    ADD COLUMN IF NOT EXISTS section_type TEXT NOT NULL DEFAULT 'document_chunk';
+
+ALTER TABLE document_sections
+    ADD COLUMN IF NOT EXISTS image_id TEXT;
+
+ALTER TABLE document_sections
+    ADD COLUMN IF NOT EXISTS image_index INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_document_sections_source_id
     ON document_sections(source_id);

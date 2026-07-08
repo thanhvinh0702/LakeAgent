@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -8,11 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
-from lake_agent.domain.indexing_models import DocumentIndexResult, DocumentSection
+from lake_agent.domain.indexing_models import (
+    DocumentEmbeddedImage,
+    DocumentIndexResult,
+    DocumentSection,
+)
 
 _SUPPORTED_DIRECT_FORMATS = {"pdf", "docx"}
 _SUPPORTED_CONVERTIBLE_FORMATS = {"doc", "rtf"}
 _SUPPORTED_FORMATS = _SUPPORTED_DIRECT_FORMATS | _SUPPORTED_CONVERTIBLE_FORMATS
+_DOCUMENT_CONVERTER: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,11 +46,13 @@ class DeterministicDocumentParser:
         load_document: Callable[[Path], Any] | None = None,
         build_chunker: Callable[[], Any] | None = None,
         prepare_source: Callable[[Path], _PreparedSource] | None = None,
+        extract_embedded_images: Callable[[Any, str], tuple[list[DocumentEmbeddedImage], str | None, list[str]]] | None = None,
     ) -> None:
         self._options = options or DocumentParseOptions()
         self._load_document = load_document or _default_load_document
         self._build_chunker = build_chunker or _default_build_chunker
         self._prepare_source = prepare_source or self._default_prepare_source
+        self._extract_embedded_images = extract_embedded_images or _extract_embedded_images
 
     def parse_file(
         self,
@@ -78,10 +87,15 @@ class DeterministicDocumentParser:
                 chunker=chunker,
                 source_id=normalized_source_id,
             )
+            embedded_images, artifact_dir, image_warnings = self._extract_embedded_images(
+                dl_doc,
+                normalized_source_id,
+            )
         finally:
             prepared.cleanup()
 
         warnings = list(prepared.warnings)
+        warnings.extend(image_warnings)
         if not sections:
             warnings.append("The file did not contain any readable document chunks.")
 
@@ -92,6 +106,8 @@ class DeterministicDocumentParser:
             file_format=extension,
             sections=sections,
             parse_warnings=warnings,
+            embedded_images=embedded_images,
+            artifact_dir=artifact_dir,
         )
         result.file_search_text = _build_file_search_text(result)
         return result
@@ -119,6 +135,7 @@ class DeterministicDocumentParser:
                         f"{source_id}:{chunk_index}:{heading or ''}:{content[:80]}",
                         prefix="section",
                     ),
+                    section_type="document_chunk",
                     chunk_index=chunk_index,
                     heading=heading,
                     content=content,
@@ -176,9 +193,34 @@ class DeterministicDocumentParser:
 
 
 def _default_load_document(path: Path) -> Any:
-    from docling.document_converter import DocumentConverter
+    converter = _get_default_document_converter()
+    return converter.convert(source=str(path)).document
 
-    return DocumentConverter().convert(source=str(path)).document
+
+def _get_default_document_converter() -> Any:
+    global _DOCUMENT_CONVERTER
+    if _DOCUMENT_CONVERTER is not None:
+        return _DOCUMENT_CONVERTER
+
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import ConvertPipelineOptions, PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
+
+    pdf_pipeline_options = PdfPipelineOptions()
+    pdf_pipeline_options.images_scale = 2.0
+    pdf_pipeline_options.generate_page_images = True
+    pdf_pipeline_options.generate_picture_images = True
+    pdf_pipeline_options.generate_table_images = True
+
+    _DOCUMENT_CONVERTER = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options),
+            InputFormat.DOCX: WordFormatOption(
+                pipeline_options=ConvertPipelineOptions()
+            ),
+        }
+    )
+    return _DOCUMENT_CONVERTER
 
 
 def _default_build_chunker() -> Any:
@@ -188,6 +230,16 @@ def _default_build_chunker() -> Any:
 
 
 def _extract_page_range(chunk: Any) -> tuple[int | None, int | None]:
+    direct_prov = getattr(chunk, "prov", None)
+    if direct_prov:
+        page_numbers = [
+            prov.page_no
+            for prov in direct_prov
+            if isinstance(getattr(prov, "page_no", None), int)
+        ]
+        if page_numbers:
+            return min(page_numbers), max(page_numbers)
+
     meta = getattr(chunk, "meta", None)
     if meta is None:
         return None, None
@@ -214,6 +266,69 @@ def _build_file_search_text(result: DocumentIndexResult) -> str | None:
             else:
                 parts.append(f"page {section.page_start}")
     return "\n".join(part for part in parts if part).strip() or None
+
+
+def _extract_embedded_images(
+    dl_doc: Any,
+    source_id: str,
+) -> tuple[list[DocumentEmbeddedImage], str | None, list[str]]:
+    pictures = list(getattr(dl_doc, "pictures", []) or [])
+    if not pictures:
+        return [], None, []
+
+    temp_dir = tempfile.mkdtemp(prefix="lake_agent_doc_images_")
+    extracted: list[DocumentEmbeddedImage] = []
+    warnings: list[str] = []
+    try:
+        for image_index, picture in enumerate(pictures, start=1):
+            try:
+                pil_image = picture.get_image(dl_doc)
+            except Exception as exc:
+                warnings.append(f"Unable to extract document image {image_index}: {exc}")
+                continue
+            if pil_image is None:
+                warnings.append(f"Document image {image_index} did not expose a readable bitmap.")
+                continue
+
+            image_filename = f"{source_id}_image_{image_index:03d}.png"
+            image_path = Path(temp_dir) / image_filename
+            with io.BytesIO() as output:
+                pil_image.save(output, format="PNG")
+                image_path.write_bytes(output.getvalue())
+
+            page_start, page_end = _extract_page_range(picture)
+            caption = None
+            caption_text = getattr(picture, "caption_text", None)
+            if callable(caption_text):
+                try:
+                    caption = caption_text(dl_doc).strip() or None
+                except Exception:
+                    caption = None
+            extracted.append(
+                DocumentEmbeddedImage(
+                    image_id=_stable_id(
+                        f"{source_id}:image:{image_index}:{image_filename}",
+                        prefix="docimg",
+                    ),
+                    image_index=image_index,
+                    path=os.fspath(image_path),
+                    filename=image_filename,
+                    width=pil_image.width,
+                    height=pil_image.height,
+                    color_mode=pil_image.mode,
+                    page_start=page_start,
+                    page_end=page_end,
+                    caption=caption,
+                )
+            )
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
+    if not extracted:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return [], None, warnings
+    return extracted, temp_dir, warnings
 
 
 def _stable_id(value: str, *, prefix: str) -> str:

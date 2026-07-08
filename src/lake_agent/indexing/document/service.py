@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -7,7 +8,11 @@ from typing import Any, Callable
 
 from lake_agent.domain.indexing_models import DocumentIndexResult
 from lake_agent.indexing.document.deterministic import DeterministicDocumentParser
-from lake_agent.indexing.document.enrichment import DocumentLLMEnricher
+from lake_agent.indexing.document.embedded_images import DocumentEmbeddedImageProcessor
+from lake_agent.indexing.document.enrichment import (
+    DocumentLLMEnricher,
+    _build_file_search_text,
+)
 from lake_agent.indexing.document.vector_store import add_document_results
 from lake_agent.persistence.repositories import DocumentIndexRepository
 
@@ -47,6 +52,7 @@ class DocumentIndexingService:
         parser: DeterministicDocumentParser,
         repository: DocumentIndexRepository,
         *,
+        image_processor: DocumentEmbeddedImageProcessor | None = None,
         enricher: DocumentLLMEnricher | None = None,
         vector_store: Any | None = None,
         enrich_batch_size: int = 10,
@@ -60,11 +66,14 @@ class DocumentIndexingService:
         self._root_dir = Path(root_dir).expanduser().resolve()
         self._parser = parser
         self._repository = repository
+        self._image_processor = image_processor
         self._enricher = enricher
         self._vector_store = vector_store
         self._enrich_batch_size = enrich_batch_size
         self._vector_batch_size = vector_batch_size
         self._progress_callback = progress_callback
+        if self._image_processor is not None:
+            self._image_processor._log_callback = self._emit_embedded_image_log
 
     def run(self, prefix: str = "") -> dict[str, int | str | list[DocumentIndexingError]]:
         normalized_prefix = _normalize_prefix(prefix)
@@ -255,33 +264,68 @@ class DocumentIndexingService:
             return indexed_count, processed_count, vector_document_count
 
         results = [result for _, result in pending]
-        if self._enricher is not None:
-            results = self._enricher.enrich_batch(results)
-
         indexed_files = [item for item, _ in pending]
-        for indexed_file, result in zip(indexed_files, results, strict=True):
-            self._repository.save(
-                result,
-                size_bytes=indexed_file.size_bytes,
-                last_modified=indexed_file.last_modified,
-                indexed_at=indexed_at,
-            )
-            vector_batch.append(result)
-            indexed_count += 1
-            if len(vector_batch) >= self._vector_batch_size:
-                vector_document_count += self._flush_vector_batch(vector_batch)
-                vector_batch.clear()
-            processed_count += 1
-            self._emit_progress(
-                event="indexed",
-                relative_path=indexed_file.relative_path,
-                processed_count=processed_count,
-                total_count=total_count,
-                indexed_count=indexed_count,
-                unchanged_count=unchanged_count,
-                error_count=error_count,
-                vector_document_count=vector_document_count,
-            )
+        try:
+            for indexed_file, result in zip(indexed_files, results, strict=True):
+                embedded_image_count = len(result.embedded_images)
+                if embedded_image_count > 0:
+                    self._emit_progress(
+                        event="info",
+                        relative_path=indexed_file.relative_path,
+                        processed_count=processed_count,
+                        total_count=total_count,
+                        indexed_count=indexed_count,
+                        unchanged_count=unchanged_count,
+                        error_count=error_count,
+                        vector_document_count=vector_document_count,
+                        message=f"Detected {embedded_image_count} embedded image(s) in document.",
+                    )
+                else:
+                    self._emit_progress(
+                        event="info",
+                        relative_path=indexed_file.relative_path,
+                        processed_count=processed_count,
+                        total_count=total_count,
+                        indexed_count=indexed_count,
+                        unchanged_count=unchanged_count,
+                        error_count=error_count,
+                        vector_document_count=vector_document_count,
+                        message="No embedded images detected in document.",
+                    )
+            if self._image_processor is not None:
+                results = self._image_processor.enrich_batch(results)
+            if self._enricher is not None:
+                results = self._enricher.enrich_batch(results)
+            else:
+                for result in results:
+                    result.file_search_text = _build_file_search_text(result)
+
+            for indexed_file, result in zip(indexed_files, results, strict=True):
+                self._repository.save(
+                    result,
+                    size_bytes=indexed_file.size_bytes,
+                    last_modified=indexed_file.last_modified,
+                    indexed_at=indexed_at,
+                )
+                vector_batch.append(result)
+                indexed_count += 1
+                if len(vector_batch) >= self._vector_batch_size:
+                    vector_document_count += self._flush_vector_batch(vector_batch)
+                    vector_batch.clear()
+                processed_count += 1
+                self._emit_progress(
+                    event="indexed",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                )
+        finally:
+            for result in results:
+                self._cleanup_result_artifacts(result)
 
         return indexed_count, processed_count, vector_document_count
 
@@ -356,6 +400,25 @@ class DocumentIndexingService:
             return 0
         document_ids = add_document_results(self._vector_store, batch)
         return len(document_ids)
+
+    def _cleanup_result_artifacts(self, result: DocumentIndexResult) -> None:
+        if result.artifact_dir:
+            shutil.rmtree(result.artifact_dir, ignore_errors=True)
+            result.artifact_dir = None
+        result.embedded_images.clear()
+
+    def _emit_embedded_image_log(self, message: str) -> None:
+        self._emit_progress(
+            event="info",
+            relative_path=None,
+            processed_count=0,
+            total_count=0,
+            indexed_count=0,
+            unchanged_count=0,
+            error_count=0,
+            vector_document_count=0,
+            message=message,
+        )
 
     def _emit_progress(
         self,

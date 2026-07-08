@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import Callable
 
 from lake_agent.config import LocalSettings, PostgresSettings
 from lake_agent.indexing.document import (
     DeterministicDocumentParser,
+    DocumentEmbeddedImageProcessingOptions,
+    DocumentEmbeddedImageProcessor,
     DocumentIndexingProgress,
     DocumentIndexingService,
     DocumentLLMEnricher,
     build_pgvector_store,
+)
+from lake_agent.indexing.image import (
+    ImageEnrichmentOptions,
+    ImageVLMEnricher,
+    OCRExtractionOptions,
+    OCRMarkdownExtractor,
 )
 from lake_agent.persistence.database import PostgresDatabase
 from lake_agent.persistence.repositories import DocumentIndexRepository
@@ -60,6 +69,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip LLM enrichment and store deterministic parse only",
     )
+    parser.add_argument(
+        "--no-ocr",
+        action="store_true",
+        help="Skip OCR extraction for images embedded in documents",
+    )
+    parser.add_argument(
+        "--ocr-batch-size",
+        type=int,
+        default=3,
+        help="Number of extracted document images to send in each OCR batch",
+    )
+    parser.add_argument(
+        "--no-vlm",
+        action="store_true",
+        help="Skip VLM summaries for images embedded in documents",
+    )
+    parser.add_argument(
+        "--vlm-batch-size",
+        type=int,
+        default=3,
+        help="Number of extracted document images to send in each VLM batch",
+    )
     return parser
 
 
@@ -68,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.enrich_batch_size <= 0:
         raise SystemExit("--enrich-batch-size must be greater than 0")
+    if args.ocr_batch_size <= 0:
+        raise SystemExit("--ocr-batch-size must be greater than 0")
+    if args.vlm_batch_size <= 0:
+        raise SystemExit("--vlm-batch-size must be greater than 0")
     progress_callback = None
 
     try:
@@ -79,6 +114,24 @@ def main(argv: list[str] | None = None) -> int:
             database.initialize(connection)
             repository = DocumentIndexRepository(connection)
             enricher = None if args.no_enrich else DocumentLLMEnricher.from_env()
+            ocr_extractor = None
+            if not args.no_ocr and os.getenv("OCR_MODEL_URL"):
+                ocr_extractor = OCRMarkdownExtractor.from_env(
+                    OCRExtractionOptions(batch_size=args.ocr_batch_size)
+                )
+            vlm_enricher = None
+            if not args.no_vlm and os.getenv("VL_MODEL_NAME"):
+                vlm_enricher = ImageVLMEnricher.from_env(ImageEnrichmentOptions())
+            image_processor = None
+            if ocr_extractor is not None or vlm_enricher is not None:
+                image_processor = DocumentEmbeddedImageProcessor(
+                    ocr_extractor=ocr_extractor,
+                    vlm_enricher=vlm_enricher,
+                    options=DocumentEmbeddedImageProcessingOptions(
+                        ocr_batch_size=args.ocr_batch_size,
+                        vlm_batch_size=args.vlm_batch_size,
+                    ),
+                )
             vector_store = build_pgvector_store(
                 args.table_name,
                 postgres_settings=postgres_settings,
@@ -88,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 local_settings.datalake_dir,
                 DeterministicDocumentParser(),
                 repository,
+                image_processor=image_processor,
                 enricher=enricher,
                 vector_store=vector_store,
                 enrich_batch_size=args.enrich_batch_size,
@@ -148,6 +202,16 @@ def _build_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
             "errors": progress.error_count,
             "vectors": progress.vector_document_count,
         }
+        if progress.event == "info" and progress.message:
+            tqdm.write(
+                (
+                    f"INFO {progress.relative_path}: {progress.message}"
+                    if progress.relative_path
+                    else f"INFO {progress.message}"
+                ),
+                file=sys.stderr,
+            )
+            return
         if progress.event == "error" and progress.relative_path and progress.message:
             tqdm.write(f"ERROR {progress.relative_path}: {progress.message}", file=sys.stderr)
         bar.set_postfix(postfix)
@@ -186,6 +250,13 @@ def _plain_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
                 f"{extra}",
                 file=sys.stderr,
             )
+            return
+
+        if progress.event == "info" and progress.message:
+            if progress.relative_path:
+                print(f"INFO {progress.relative_path}: {progress.message}", file=sys.stderr)
+            else:
+                print(f"INFO {progress.message}", file=sys.stderr)
             return
 
         if progress.event == "done":
