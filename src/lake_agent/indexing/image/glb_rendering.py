@@ -4,6 +4,7 @@ import io
 import hashlib
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -111,9 +112,38 @@ def render_glb_to_6_views(file_path: str) -> list[bytes]:
         raise RuntimeError(f"Failed to render GLB model '{path}': {exc}") from exc
 
 
+def render_glb_to_6_view_files(
+    file_path: str,
+    output_root: str | Path,
+) -> list[Path]:
+    """Render a GLB into one folder containing six canonical PNG view files.
+
+    Output layout:
+        output_root/<model_stem>/front.png
+        output_root/<model_stem>/back.png
+        output_root/<model_stem>/left.png
+        output_root/<model_stem>/right.png
+        output_root/<model_stem>/top.png
+        output_root/<model_stem>/bottom.png
+    """
+
+    path = Path(file_path).expanduser().resolve()
+    model_dir = Path(output_root).expanduser().resolve() / _safe_folder_name(path.stem)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    rendered_views = render_glb_to_6_views(os.fspath(path))
+    output_paths: list[Path] = []
+    for view_name, image_bytes in zip(_VIEW_NAMES, rendered_views, strict=True):
+        output_path = model_dir / f"{view_name}.png"
+        output_path.write_bytes(image_bytes)
+        output_paths.append(output_path)
+    return output_paths
+
+
 def render_glb_to_6_image_results(
     file_path: str,
     *,
+    output_root: str | Path | None = None,
     ocr_extractor: Any | None = None,
     vlm_enricher: Any | None = None,
 ) -> list[Any]:
@@ -128,23 +158,33 @@ def render_glb_to_6_image_results(
     from lake_agent.domain.indexing_models import ImageIndexResult
 
     path = Path(file_path).expanduser().resolve()
-    view_bytes = render_glb_to_6_views(os.fspath(path))
-    view_names = ["front", "back", "left", "right", "top", "bottom"]
+    view_paths: list[Path] | None = None
+    if output_root is None:
+        view_bytes = render_glb_to_6_views(os.fspath(path))
+    else:
+        view_paths = render_glb_to_6_view_files(os.fspath(path), output_root)
+        view_bytes = [view_path.read_bytes() for view_path in view_paths]
     stem = path.stem
 
     results: list[ImageIndexResult] = []
     image_payloads: list[tuple[str, bytes]] = []
-    for view_name, image_bytes in zip(view_names, view_bytes, strict=True):
-        filename = f"{stem}_{view_name}.png"
+    for index, (view_name, image_bytes) in enumerate(zip(_VIEW_NAMES, view_bytes, strict=True)):
+        view_path = view_paths[index] if view_paths is not None else None
+        filename = view_path.name if view_path is not None else f"{stem}_{view_name}.png"
         source_id = _stable_id(f"{path.as_posix()}:{view_name}", prefix="glbview")
         with Image.open(io.BytesIO(image_bytes)) as image:
             width, height = image.size
             color_mode = image.mode
             has_alpha = color_mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
 
+        relative_path = (
+            view_path.as_posix()
+            if view_path is not None
+            else f"{path.name}#{view_name}"
+        )
         result = ImageIndexResult(
             source_id=source_id,
-            relative_path=f"{path.name}#{view_name}",
+            relative_path=relative_path,
             filename=filename,
             file_format="png",
             width=width,
@@ -161,17 +201,26 @@ def render_glb_to_6_image_results(
         image_payloads.append((filename, image_bytes))
 
     if ocr_extractor is not None:
-        sections_by_source = ocr_extractor.extract_sections_bytes_batch(
-            image_payloads,
-            source_ids=[result.source_id for result in results],
-        )
+        if view_paths is not None:
+            sections_by_source = ocr_extractor.extract_sections_batch(
+                view_paths,
+                source_ids=[result.source_id for result in results],
+            )
+        else:
+            sections_by_source = ocr_extractor.extract_sections_bytes_batch(
+                image_payloads,
+                source_ids=[result.source_id for result in results],
+            )
         for result in results:
             result.sections.extend(sections_by_source.get(result.source_id, []))
 
     if vlm_enricher is not None:
-        vlm_enricher.enrich_bytes_batch(image_payloads, results)
+        if view_paths is not None:
+            vlm_enricher.enrich_batch(view_paths, results)
+        else:
+            vlm_enricher.enrich_bytes_batch(image_payloads, results)
 
-    for result, view_name in zip(results, view_names, strict=True):
+    for result, view_name in zip(results, _VIEW_NAMES, strict=True):
         result.file_search_text = _build_rendered_view_search_text(result, view_name)
     return results
 
@@ -267,3 +316,12 @@ def _build_rendered_view_search_text(result: Any, view_name: str) -> str:
 def _stable_id(value: str, *, prefix: str) -> str:
     digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}_{digest}"
+
+
+def _safe_folder_name(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "model"
+
+
+_VIEW_NAMES = ["front", "back", "left", "right", "top", "bottom"]
