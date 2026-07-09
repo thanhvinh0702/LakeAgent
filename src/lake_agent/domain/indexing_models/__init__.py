@@ -1,5 +1,10 @@
 """Domain models for indexing pipelines."""
 
+from lake_agent.domain.indexing_models.audio import (
+    AudioFormat,
+    AudioIndexResult,
+    AudioSection,
+)
 from lake_agent.domain.indexing_models.document import (
     DocumentFormat,
     DocumentEmbeddedImage,
@@ -33,6 +38,10 @@ from lake_agent.domain.indexing_models.tabular import (
     TableProfile,
     TabularIndexResult,
 )
+from lake_agent.domain.indexing_models.tabular_enrichment import (
+    EnrichedTableProfile,
+    EnrichedTabularResult,
+)
 from lake_agent.domain.indexing_models.text import (
     TextFormat,
     TextIndexResult,
@@ -49,38 +58,73 @@ from lake_agent.domain.indexing_models.web import (
 from lake_agent.domain.indexing_models.web_enrichment import (
     EnrichedWebResult,
 )
-from lake_agent.domain.indexing_models.tabular_enrichment import (
-    EnrichedTableProfile,
-    EnrichedTabularResult,
+from lake_agent.domain.indexing_models.video import (
+    VideoFormat,
+    VideoIndexResult,
+    VideoSection,
+)
+from lake_agent.domain.indexing_models.sql_script import (
+    SqlScriptFormat,
+    SqlScriptIndexResult,
+    SqlScriptSection,
+)
+from lake_agent.domain.indexing_models.sql_script_enrichment import (
+    EnrichedSqlScriptResult,
+)
+from lake_agent.domain.indexing_models.database import (
+    DatabaseFormat,
+    DbColumnProfile,
+    DbTableProfile,
+    DatabaseIndexResult,
+)
+from lake_agent.domain.indexing_models.database_enrichment import (
+    EnrichedDatabaseTableProfile,
+    EnrichedDatabaseResult,
 )
 
 __all__ = [
+    "AudioFormat",
+    "AudioIndexResult",
+    "AudioSection",
     "ColumnProfile",
+    "DatabaseFormat",
+    "DatabaseIndexResult",
+    "DbColumnProfile",
+    "DbTableProfile",
     "DocumentFormat",
     "DocumentEmbeddedImage",
     "DocumentIndexResult",
     "DocumentSection",
+    "EnrichedDatabaseResult",
+    "EnrichedDatabaseTableProfile",
     "EnrichedDocumentResult",
+    "EnrichedImageResult",
+    "EnrichedSlideshowResult",
+    "EnrichedSqlScriptResult",
+    "EnrichedTableProfile",
+    "EnrichedTabularResult",
+    "EnrichedTextResult",
+    "EnrichedWebResult",
     "ImageFormat",
     "ImageIndexResult",
     "ImageSection",
-    "EnrichedTableProfile",
-    "EnrichedImageResult",
-    "EnrichedTextResult",
-    "EnrichedWebResult",
-    "EnrichedTabularResult",
-    "EnrichedSlideshowResult",
     "ScalarType",
     "SlideshowEmbeddedImage",
     "SlideshowFormat",
     "SlideshowIndexResult",
     "SlideshowSection",
+    "SqlScriptFormat",
+    "SqlScriptIndexResult",
+    "SqlScriptSection",
     "TableFormat",
     "TableProfile",
     "TabularIndexResult",
     "TextFormat",
     "TextIndexResult",
     "TextSection",
+    "VideoFormat",
+    "VideoIndexResult",
+    "VideoSection",
     "WebFormat",
     "WebIndexResult",
     "WebSection",

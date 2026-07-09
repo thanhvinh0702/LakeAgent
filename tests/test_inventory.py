@@ -6,12 +6,8 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lake_agent.domain.enums import Modality
-from lake_agent.domain.models import (
-    DiscoveredObject,
-    IdentificationResult,
-    ObjectLocator,
-)
+from lake_agent.domain.enums import FileStatus, Modality
+from lake_agent.domain.models import FileMetadata
 from lake_agent.inventory.identifier import ObjectIdentifier
 from lake_agent.inventory.scanner import ObjectScanner
 from lake_agent.inventory.service import InventoryService
@@ -24,90 +20,67 @@ class FakeObjectStore:
         self.objects = objects
         self.range_reads = 0
 
-    def list_objects(self, bucket: str, prefix: str = ""):
+    def list_objects(self, prefix: str = ""):
         for key, content in self.objects.items():
             if key.startswith(prefix):
-                yield DiscoveredObject(
-                    locator=ObjectLocator(bucket, key),
+                yield FileMetadata(
+                    object_key=key,
                     etag=f"etag-{len(content)}-{key}",
                     size_bytes=len(content),
                     last_modified=datetime(2026, 6, 30, tzinfo=UTC),
                 )
 
-    def stat_object(self, locator: ObjectLocator) -> DiscoveredObject:
-        content = self.objects[locator.object_key]
-        return DiscoveredObject(
-            locator=locator,
-            etag=f"etag-{len(content)}-{locator.object_key}",
+    def stat_object(self, obj: FileMetadata) -> FileMetadata:
+        content = self.objects[obj.object_key]
+        return FileMetadata(
+            object_key=obj.object_key,
+            etag=f"etag-{len(content)}-{obj.object_key}",
             size_bytes=len(content),
             last_modified=datetime(2026, 6, 30, tzinfo=UTC),
             declared_content_type="application/octet-stream",
             user_metadata={"source": "test"},
         )
 
-    def read_range(self, locator: ObjectLocator, offset: int, length: int) -> bytes:
+    def read_range(self, obj: FileMetadata, offset: int, length: int) -> bytes:
         self.range_reads += 1
-        return self.objects[locator.object_key][offset : offset + length]
+        return self.objects[obj.object_key][offset : offset + length]
 
-    def stream_object(self, locator: ObjectLocator):
-        return io.BytesIO(self.objects[locator.object_key])
+    def stream_object(self, obj: FileMetadata):
+        return io.BytesIO(self.objects[obj.object_key])
+
+    def rename_object(self, obj: FileMetadata, new_object_key: str) -> FileMetadata:
+        content = self.objects.pop(obj.object_key)
+        self.objects[new_object_key] = content
+        return FileMetadata(
+            object_key=new_object_key,
+            etag=obj.etag,
+            size_bytes=obj.size_bytes,
+            last_modified=obj.last_modified,
+            declared_content_type=obj.declared_content_type,
+            user_metadata=obj.user_metadata,
+        )
 
 
 class FakeRepository:
     def __init__(self) -> None:
         self.objects: dict[str, dict] = {}
-        self.runs: dict[str, dict] = {}
-        self._run_number = 0
-
-    def create_run(self, bucket: str, prefix: str) -> str:
-        self._run_number += 1
-        run_id = f"run-{self._run_number}"
-        self.runs[run_id] = {"bucket": bucket, "prefix": prefix}
-        return run_id
 
     def find_object(self, identity: str):
         return self.objects.get(identity)
 
-    def mark_seen(self, obj: DiscoveredObject, run_id: str) -> None:
-        self.objects[obj.locator.identity]["last_seen_run_id"] = run_id
-
-    def upsert_identified(self, obj, result, run_id: str) -> None:
-        self.objects[obj.locator.identity] = {
-            "object_id": obj.locator.object_id,
+    def save(self, obj: FileMetadata, scanned_at: datetime) -> None:
+        self.objects[obj.identity] = {
+            "object_id": obj.object_id,
             "etag": obj.etag,
             "size_bytes": obj.size_bytes,
             "version_id": obj.version_id,
             "last_modified": obj.last_modified,
-            "status": "identified",
-            "sha256": result.sha256,
-            "last_seen_run_id": run_id,
-            "format": result.detected_format,
+            "status": obj.status.value,
+            "format": obj.detected_format,
         }
 
-    def upsert_failed_object(self, obj, run_id: str, message: str) -> None:
-        self.objects[obj.locator.identity] = {
-            "etag": obj.etag,
-            "size_bytes": obj.size_bytes,
-            "version_id": obj.version_id,
-            "last_modified": obj.last_modified,
-            "status": "error",
-            "last_seen_run_id": run_id,
-        }
-
-    def record_error(self, *args, **kwargs) -> None:
+    def mark_missing(self, prefix: str, scanned_at: datetime) -> None:
         pass
-
-    def mark_listing_completed(self, run_id: str) -> None:
-        self.runs[run_id]["listing_completed"] = True
-
-    def mark_unseen_missing(self, run_id: str, bucket: str, prefix: str) -> None:
-        pass
-
-    def complete_run(self, run_id: str, **counts) -> None:
-        self.runs[run_id].update(counts)
-
-    def fail_run(self, run_id: str, error: Exception) -> None:
-        self.runs[run_id]["error"] = str(error)
 
 
 class RecordingResult:
@@ -129,7 +102,7 @@ class PlaceholderCheckingConnection:
 class ObjectIdentifierTest(unittest.TestCase):
     def test_signature_wins_over_wrong_extension(self) -> None:
         store = FakeObjectStore({"wrong.txt": b"%PDF-1.7\ncontent"})
-        obj = next(store.list_objects("datalake"))
+        obj = next(store.list_objects())
 
         result = ObjectIdentifier(store).identify(obj)
 
@@ -139,7 +112,7 @@ class ObjectIdentifierTest(unittest.TestCase):
 
     def test_sql_is_identified_as_textual_sql_script(self) -> None:
         store = FakeObjectStore({"class_grades.sql": b"CREATE TABLE scores (id INT);"})
-        obj = next(store.list_objects("datalake"))
+        obj = next(store.list_objects())
 
         result = ObjectIdentifier(store).identify(obj)
 
@@ -164,9 +137,9 @@ class InventoryServiceTest(unittest.TestCase):
             repository,
         )
 
-        first = service.run("datalake")
+        first = service.run("")
         reads_after_first = store.range_reads
-        second = service.run("datalake")
+        second = service.run("")
 
         self.assertEqual(2, first["identified_count"])
         self.assertEqual(0, first["unchanged_count"])
@@ -202,62 +175,22 @@ class InventoryRepositoryTest(unittest.TestCase):
     def test_repository_statements_have_matching_parameter_counts(self) -> None:
         connection = PlaceholderCheckingConnection()
         repository = InventoryRepository(connection)
-        locator = ObjectLocator("datalake", "tables/sales.csv")
-        obj = DiscoveredObject(
-            locator=locator,
+        
+        obj = FileMetadata(
+            object_key="tables/sales.csv",
             etag="abc",
             size_bytes=10,
             last_modified=datetime(2026, 6, 30, tzinfo=UTC),
-        )
-        result = IdentificationResult(
-            locator=locator,
             detected_mime_type="text/csv",
             detected_format="csv",
             modality=Modality.TABULAR,
             encoding="utf-8",
-            confidence=0.85,
+            identification_confidence=0.85,
         )
 
-        repository.create_run("datalake", "")
-        repository.find_object(locator.identity)
-        repository.mark_seen(obj, "00000000-0000-0000-0000-000000000001")
-        repository.upsert_identified(
-            obj,
-            result,
-            "00000000-0000-0000-0000-000000000001",
-        )
-        repository.upsert_failed_object(
-            obj,
-            "00000000-0000-0000-0000-000000000001",
-            "failed",
-        )
-        repository.record_error(
-            "00000000-0000-0000-0000-000000000001",
-            "datalake",
-            obj.object_key,
-            None,
-            "identify",
-            ValueError("failed"),
-        )
-        repository.mark_listing_completed(
-            "00000000-0000-0000-0000-000000000001"
-        )
-        repository.mark_unseen_missing(
-            "00000000-0000-0000-0000-000000000001",
-            "datalake",
-            "",
-        )
-        repository.complete_run(
-            "00000000-0000-0000-0000-000000000001",
-            discovered_count=1,
-            identified_count=1,
-            unchanged_count=0,
-            error_count=0,
-        )
-        repository.fail_run(
-            "00000000-0000-0000-0000-000000000001",
-            ValueError("failed"),
-        )
+        repository.find_object(obj.identity)
+        repository.save(obj, datetime.now(UTC))
+        repository.mark_missing("datalake", datetime.now(UTC))
 
 
 if __name__ == "__main__":
