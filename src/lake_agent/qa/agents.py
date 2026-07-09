@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ModalityRouting(BaseModel):
     modalities: list[str] = Field(
-        description="List of target modalities to query. Options: 'text', 'tabular', 'image', 'document', 'audio', 'video', 'database'."
+        description="List of target modalities to query. Options: 'text', 'tabular', 'image', 'document', 'epub', 'audio', 'video', 'database'."
     )
     queries: dict[str, str] = Field(
         description="Modality-specific search queries generated for each routed modality."
@@ -58,6 +58,7 @@ class SupervisorAgent(BaseAgent):
             "- 'tabular': csv, tsv, xlsx files.\n"
             "- 'image': png, jpg, jpeg files.\n"
             "- 'document': pdf manuals or PDF documents.\n"
+            "- 'epub': EPUB/light novel books with chapter text and embedded image captions.\n"
             "- 'audio': mp3, wav, m4a audio files.\n"
             "- 'video': mp4, mkv, mov, avi, webm video files.\n"
             "- 'database': sqlite database files.\n\n"
@@ -89,6 +90,8 @@ class SupervisorAgent(BaseAgent):
                 modalities.append("text")
             if "pdf" in lower_q or "axiom" in lower_q or "project" in lower_q:
                 modalities.append("document")
+            if "epub" in lower_q or "light novel" in lower_q or "novel" in lower_q or "chapter" in lower_q:
+                modalities.append("epub")
             if "audio" in lower_q or "m4a" in lower_q or "meeting" in lower_q or "workshop" in lower_q or "participants" in lower_q:
                 modalities.append("audio")
             if "video" in lower_q or "mp4" in lower_q or "mkv" in lower_q or "frame" in lower_q:

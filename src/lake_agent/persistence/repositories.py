@@ -10,6 +10,7 @@ from lake_agent.domain.indexing_models import (
     AudioIndexResult,
     DatabaseIndexResult,
     DocumentIndexResult,
+    EpubIndexResult,
     ImageIndexResult,
     SlideshowIndexResult,
     SqlScriptIndexResult,
@@ -546,6 +547,229 @@ class TextIndexRepository:
         self._connection.execute(
             """
             UPDATE text_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+
+class EpubIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM epub_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: EpubIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO epub_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, title, creators, language,
+                publisher, identifier, chapter_count, image_count, vl_model_name,
+                parser_version, parse_warnings, file_summary, file_keywords,
+                file_search_text, status, error_message, first_indexed_at,
+                last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s::jsonb, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s::jsonb, %s, %s::jsonb,
+                %s, %s, %s, %s,
+                %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                title = EXCLUDED.title,
+                creators = EXCLUDED.creators,
+                language = EXCLUDED.language,
+                publisher = EXCLUDED.publisher,
+                identifier = EXCLUDED.identifier,
+                chapter_count = EXCLUDED.chapter_count,
+                image_count = EXCLUDED.image_count,
+                vl_model_name = EXCLUDED.vl_model_name,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.title,
+                json.dumps(result.creators),
+                result.language,
+                result.publisher,
+                result.identifier,
+                result.chapter_count,
+                result.image_count,
+                result.vl_model_name,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM epub_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO epub_sections (
+                    section_id, source_id, section_type, chunk_index,
+                    heading, content, chapter_index, chapter_title,
+                    chapter_href, image_id, image_index, image_href,
+                    char_count, search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.section_type,
+                    section.chunk_index,
+                    section.heading,
+                    section.content,
+                    section.chapter_index,
+                    section.chapter_title,
+                    section.chapter_href,
+                    section.image_id,
+                    section.image_index,
+                    section.image_href,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO epub_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM epub_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE epub_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE epub_files
             SET is_present = FALSE,
                 status = %s,
                 updated_at = NOW()

@@ -9,6 +9,7 @@ class Modality(str, Enum):
     SEMI_STRUCTURE = "semi_structure"
     AUDIO = "audio"
     VIDEO = "video"
+    EPUB = "epub"
     SLIDE_SHOW = "slide_show"
     DATABASE = "database"
     SQL_SCRIPT = "sql_script"
