@@ -262,6 +262,7 @@ class IndexedDataRetriever:
             """
             SELECT t.table_id, t.source_id, f.relative_path, f.filename, f.file_format,
                    t.table_name, t.sheet_name, t.sheet_description, t.header_row_index,
+                   t.raw_header,
                    t.row_count, t.column_count, t.summary, t.keywords, t.columns_json,
                    t.preview_rows, t.warnings
             FROM tabular_tables AS t
@@ -452,7 +453,7 @@ class IndexedDataRetriever:
         ).fetchone()
 
     def _format_tabular_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "tabular",
             "record_type": "file",
             "file_path": row["relative_path"],
@@ -460,9 +461,11 @@ class IndexedDataRetriever:
             "content": row["file_summary"],
             "sheet_descriptions": row["workbook_sheet_descriptions"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_tabular_table_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "tabular",
             "record_type": "table",
             "file_path": row["relative_path"],
@@ -471,66 +474,102 @@ class IndexedDataRetriever:
             "table_name": row["table_name"],
             "sheet_name": row["sheet_name"],
             "sheet_description": row["sheet_description"],
+            "header": row["raw_header"],
             "columns": row["columns_json"],
             "preview_rows": row["preview_rows"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_text_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "text",
             "record_type": "file",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row["file_summary"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_text_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "text",
             "record_type": "section",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row.get("search_text") or row["content"],
         }
+        position = _build_position(row, start_key="line_start", end_key="line_end", unit="line")
+        if position is not None:
+            hit["position"] = position
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_document_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "document",
             "record_type": "file",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row["file_summary"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_document_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "document",
             "record_type": "section",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row.get("search_text") or row["content"],
         }
+        position = _build_position(
+            row,
+            start_key="page_start",
+            end_key="page_end",
+            unit="page",
+            extra_keys=("image_index",),
+        )
+        if position is not None:
+            hit["position"] = position
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_slideshow_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "slideshow",
             "record_type": "file",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row["file_summary"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_slideshow_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "slideshow",
             "record_type": "section",
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row.get("search_text") or row["content"],
         }
+        position = _build_position(
+            row,
+            start_key="slide_start",
+            end_key="slide_end",
+            unit="slide",
+            extra_keys=("image_index",),
+        )
+        if position is not None:
+            hit["position"] = position
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_image_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "image",
             "record_type": "file",
             "file_path": row["relative_path"],
@@ -539,9 +578,11 @@ class IndexedDataRetriever:
             "width": row["width"],
             "height": row["height"],
         }
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_image_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
-        return {
+        hit = {
             "modality": "image",
             "record_type": "section",
             "file_path": row["relative_path"],
@@ -550,6 +591,11 @@ class IndexedDataRetriever:
             "width": row["width"],
             "height": row["height"],
         }
+        position = _build_position(row, start_key="line_start", end_key="line_end", unit="line")
+        if position is not None:
+            hit["position"] = position
+        self._attach_absolute_file_path(hit)
+        return hit
 
     def _format_file_summary(self, modality: ModalityName, row: dict[str, Any]) -> dict[str, Any]:
         base = {
@@ -570,6 +616,7 @@ class IndexedDataRetriever:
             base["has_alpha"] = row["has_alpha"]
             base["is_animated"] = row["is_animated"]
             base["frame_count"] = row["frame_count"]
+        self._attach_absolute_file_path(base)
         return base
 
     def _normalize_file_path(self, file_path: str) -> str:
@@ -591,6 +638,17 @@ class IndexedDataRetriever:
             if candidate and candidate not in candidates:
                 candidates.append(candidate)
         return candidates
+
+    def _attach_absolute_file_path(self, payload: dict[str, Any]) -> None:
+        relative_path = payload.get("file_path")
+        if not relative_path:
+            return
+        payload["execution_file_path"] = f"./{str(relative_path).lstrip('./')}"
+        if self._datalake_dir is None:
+            return
+        payload["absolute_file_path"] = str(
+            (self._datalake_dir / str(relative_path)).resolve()
+        )
 
 
 def build_langchain_retrieval_tools(
@@ -678,6 +736,30 @@ def build_langchain_retrieval_tools(
         ),
     ]
     return tools
+
+
+def _build_position(
+    row: dict[str, Any],
+    *,
+    start_key: str,
+    end_key: str,
+    unit: str,
+    extra_keys: tuple[str, ...] = (),
+) -> dict[str, Any] | None:
+    position: dict[str, Any] = {"unit": unit}
+    start_value = row.get(start_key)
+    end_value = row.get(end_key)
+    if start_value is not None:
+        position["start"] = start_value
+    if end_value is not None:
+        position["end"] = end_value
+    for key in extra_keys:
+        value = row.get(key)
+        if value is not None:
+            position[key] = value
+    if len(position) == 1:
+        return None
+    return position
 
 
 def _is_missing_vector_table_error(exc: Exception) -> bool:

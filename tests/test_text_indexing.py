@@ -10,6 +10,7 @@ from lake_agent.indexing.text import (
     TextIndexingService,
     build_text_documents,
 )
+from lake_agent.indexing.text.chunking import build_basic_search_text
 from lake_agent.persistence.repositories import TextIndexRepository
 
 
@@ -87,12 +88,10 @@ class FakeTextEnricher:
         result.file_summary = f"Summary for {result.filename}"
         result.file_keywords = ["notes", "text"]
         for section in result.sections:
-            parts = []
-            if section.heading:
-                parts.append(section.heading)
-            parts.append(result.file_summary)
-            parts.append(section.content)
-            section.search_text = "\n".join(part for part in parts if part)
+            section.search_text = build_basic_search_text(
+                section.heading,
+                section.content,
+            )
         result.file_search_text = "\n".join(
             part
             for part in [
@@ -133,6 +132,10 @@ class DeterministicTextParserTest(unittest.TestCase):
         self.assertEqual("Overview", result.sections[0].heading)
         self.assertEqual("Measurements", result.sections[1].heading)
         self.assertIn("Lake overview paragraph.", result.sections[0].content)
+        self.assertEqual(
+            "Overview\nLake overview paragraph.",
+            result.sections[0].search_text,
+        )
         self.assertIsNone(result.file_summary)
 
     def test_text_parser_chunks_large_plain_text(self) -> None:
@@ -147,7 +150,30 @@ class DeterministicTextParserTest(unittest.TestCase):
         self.assertEqual("txt", result.file_format)
         self.assertGreaterEqual(len(result.sections), 2)
         self.assertTrue(all(section.content for section in result.sections))
+        self.assertTrue(all(section.search_text == section.content for section in result.sections))
         self.assertIsNone(result.file_summary)
+
+    def test_text_parser_uses_recursive_chunking_for_plain_text(self) -> None:
+        paragraphs = [
+            "Paragraph one discusses the library renovation timeline and community use. " * 8,
+            "Paragraph two covers digital resources, study rooms, and mobile app access. " * 8,
+            "Paragraph three explains preserved furniture, lighting upgrades, and layout changes. "
+            * 8,
+            "Paragraph four summarizes outcomes, visitor growth, and continued print borrowing. "
+            * 8,
+        ]
+        content = "\n\n".join(paragraphs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "story.txt"
+            file_path.write_text(content, encoding="utf-8")
+
+            result = DeterministicTextParser().parse_file(file_path)
+
+        self.assertGreaterEqual(len(result.sections), 2)
+        self.assertTrue(all(section.char_count <= 1000 for section in result.sections))
+        self.assertIn("Paragraph one discusses", result.sections[0].content)
+        self.assertIn("Paragraph four summarizes", result.sections[-1].content)
 
 
 class TextIndexRepositoryTest(unittest.TestCase):
@@ -218,7 +244,14 @@ class TextIndexingServiceTest(unittest.TestCase):
         self.assertEqual(2, len(enricher.batch_calls[0]))
         self.assertEqual(2, second["unchanged_count"])
         self.assertEqual("Summary for a.txt", repository.saved_results[0].file_summary)
-        self.assertIn("Summary for a.txt", repository.saved_results[0].sections[0].search_text)
+        self.assertEqual(
+            repository.saved_results[0].sections[0].content,
+            repository.saved_results[0].sections[0].search_text,
+        )
+        self.assertEqual(
+            "Title\nbody",
+            repository.saved_results[1].sections[0].search_text,
+        )
 
     def test_build_text_documents_emits_file_and_section_docs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -118,10 +118,35 @@ class ImageIndexingService:
             source_id = _stable_source_id(indexed_file.relative_path)
 
             try:
+                self._emit_progress(
+                    event="parsing",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message="Parsing deterministic image metadata",
+                )
                 result = self._parser.parse_file(
                     absolute_path,
                     relative_path=indexed_file.relative_path,
                     source_id=source_id,
+                )
+                self._emit_progress(
+                    event="parsed",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=(
+                        f"Parsed image metadata: {result.width}x{result.height}, "
+                        f"format={result.file_format}, mode={result.color_mode}"
+                    ),
                 )
                 pending.append((indexed_file, result))
                 if len(pending) >= self._pending_flush_size():
@@ -221,9 +246,32 @@ class ImageIndexingService:
         if not pending:
             return indexed_count, processed_count, vector_document_count
 
+        self._emit_progress(
+            event="flush_pending",
+            relative_path=pending[0][0].relative_path,
+            processed_count=processed_count,
+            total_count=total_count,
+            indexed_count=indexed_count,
+            unchanged_count=unchanged_count,
+            error_count=error_count,
+            vector_document_count=vector_document_count,
+            message=f"Flushing pending batch of {len(pending)} image(s)",
+        )
+
         sections_by_source: dict[str, list] = {}
         if self._ocr_extractor is not None:
             try:
+                self._emit_progress(
+                    event="ocr_batch",
+                    relative_path=pending[0][0].relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=f"Running OCR batch for {len(pending)} image(s)",
+                )
                 sections_by_source = self._ocr_extractor.extract_sections_batch(
                     [self._root_dir / item.relative_path for item, _ in pending],
                     source_ids=[result.source_id for _, result in pending],
@@ -239,6 +287,17 @@ class ImageIndexingService:
 
         if self._vlm_enricher is not None:
             try:
+                self._emit_progress(
+                    event="vlm_batch",
+                    relative_path=pending[0][0].relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=f"Running VLM batch for {len(pending)} image(s)",
+                )
                 self._vlm_enricher.enrich_batch(
                     [self._root_dir / item.relative_path for item, _ in pending],
                     [result for _, result in pending],
@@ -249,6 +308,17 @@ class ImageIndexingService:
                     result.parse_warnings.append(warning)
 
         for indexed_file, result in pending:
+            self._emit_progress(
+                event="saving",
+                relative_path=indexed_file.relative_path,
+                processed_count=processed_count,
+                total_count=total_count,
+                indexed_count=indexed_count,
+                unchanged_count=unchanged_count,
+                error_count=error_count,
+                vector_document_count=vector_document_count,
+                message="Saving indexed image result",
+            )
             self._repository.save(
                 result,
                 size_bytes=indexed_file.size_bytes,
@@ -257,6 +327,17 @@ class ImageIndexingService:
             )
             vector_batch.append(result)
             if len(vector_batch) >= self._vector_batch_size:
+                self._emit_progress(
+                    event="vector_flush",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=f"Flushing {len(vector_batch)} vector document(s)",
+                )
                 vector_document_count += self._flush_vector_batch(vector_batch)
                 vector_batch.clear()
             indexed_count += 1

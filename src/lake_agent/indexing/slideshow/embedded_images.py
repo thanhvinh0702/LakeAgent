@@ -178,13 +178,15 @@ def _build_image_summary_search_text(
     image: SlideshowEmbeddedImage,
     result: SlideshowIndexResult,
 ) -> str:
-    parts = [
-        result.filename,
-        result.relative_path,
-        image.filename,
-        image.caption,
-        enriched.file_summary,
-    ]
+    parts: list[str] = []
+    if image.caption:
+        parts.append(image.caption)
+    if enriched.file_summary:
+        parts.append(enriched.file_summary)
     if enriched.file_keywords:
         parts.append(", ".join(enriched.file_keywords))
+    if not parts:
+        fallback = image.caption or enriched.filename or image.filename or result.filename
+        if fallback:
+            parts.append(fallback)
     return build_basic_search_text(None, "\n".join(part for part in parts if part))

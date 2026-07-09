@@ -174,7 +174,7 @@ class InventoryServiceTest(unittest.TestCase):
         self.assertEqual(2, second["unchanged_count"])
         self.assertEqual(reads_after_first, store.range_reads)
 
-    def test_inventory_renames_wrong_extension_to_detected_format(self) -> None:
+    def test_inventory_keeps_original_extension_when_signature_disagrees(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             original_path = root / "docs" / "report.txt"
@@ -191,11 +191,10 @@ class InventoryServiceTest(unittest.TestCase):
 
             result = service.run()
 
-            renamed_path = root / "docs" / "report.pdf"
             self.assertEqual(1, result["identified_count"])
-            self.assertFalse(original_path.exists())
-            self.assertTrue(renamed_path.exists())
-            saved = repository.objects['["docs/report.pdf",""]']
+            self.assertTrue(original_path.exists())
+            self.assertFalse((root / "docs" / "report.pdf").exists())
+            saved = repository.objects['["docs/report.txt",""]']
             self.assertEqual("pdf", saved["format"])
 
 

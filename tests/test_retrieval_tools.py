@@ -68,6 +68,7 @@ class RetrievalToolsTest(unittest.TestCase):
                 "sheet_name": "Sheet1",
                 "sheet_description": "Revenue sheet",
                 "header_row_index": 1,
+                "raw_header": ["month", "revenue"],
                 "row_count": 10,
                 "column_count": 3,
                 "summary": "Revenue by month.",
@@ -96,13 +97,23 @@ class RetrievalToolsTest(unittest.TestCase):
                 "slideshow": FakeVectorStore([]),
                 "image": FakeVectorStore([]),
             },
+            datalake_dir="/lake",
         )
 
         result = retriever.query_tabular("revenue", 3, 0)
 
         self.assertEqual("tabular", result["modality"])
         self.assertEqual("Revenue by month.", result["results"][0]["content"])
+        self.assertEqual(
+            "./data/report.xlsx",
+            result["results"][0]["execution_file_path"],
+        )
+        self.assertEqual(
+            "/lake/data/report.xlsx",
+            result["results"][0]["absolute_file_path"],
+        )
         self.assertEqual("Sheet1", result["results"][0]["sheet_name"])
+        self.assertEqual(["month", "revenue"], result["results"][0]["header"])
         self.assertEqual(3, result["limit"])
         self.assertEqual(0, result["offset"])
         self.assertNotIn("table_id", result["results"][0])
@@ -177,14 +188,35 @@ class RetrievalToolsTest(unittest.TestCase):
                     ]
                 ),
             },
+            datalake_dir="/lake",
         )
 
         result = retriever.query_all("chart", 2, 0)
 
         self.assertEqual(2, len(result["results"]))
         self.assertEqual("image", result["results"][0]["modality"])
+        self.assertEqual(
+            "./images/a.png",
+            result["results"][0]["execution_file_path"],
+        )
+        self.assertEqual(
+            "/lake/images/a.png",
+            result["results"][0]["absolute_file_path"],
+        )
         self.assertEqual("text", result["results"][1]["modality"])
         self.assertEqual("Intro\nAlpha content\nSummary context", result["results"][1]["content"])
+        self.assertEqual(
+            "./notes/a.md",
+            result["results"][1]["execution_file_path"],
+        )
+        self.assertEqual(
+            "/lake/notes/a.md",
+            result["results"][1]["absolute_file_path"],
+        )
+        self.assertEqual(
+            {"unit": "line", "start": 1, "end": 4},
+            result["results"][1]["position"],
+        )
         self.assertNotIn("section_id", result["results"][1])
         self.assertNotIn("chunk_index", result["results"][1])
         self.assertNotIn("heading", result["results"][1])
@@ -283,12 +315,16 @@ class RetrievalToolsTest(unittest.TestCase):
                 ),
                 "image": FakeVectorStore([]),
             },
+            datalake_dir="/lake",
         )
 
         result = retriever.query_slideshow("topic", 3, 0)
         hit = result["results"][0]
 
         self.assertEqual("Useful slide content\nSlide context", hit["content"])
+        self.assertEqual("./slides/a.pptx", hit["execution_file_path"])
+        self.assertEqual("/lake/slides/a.pptx", hit["absolute_file_path"])
+        self.assertEqual({"unit": "slide", "start": 3, "end": 3}, hit["position"])
         for key in (
             "section_id",
             "section_type",
@@ -345,6 +381,7 @@ class RetrievalToolsTest(unittest.TestCase):
                 ),
                 "image": FakeVectorStore([]),
             },
+            datalake_dir="/lake",
         )
 
         result = retriever.query_slideshow("market", 3, 0)
@@ -409,6 +446,7 @@ class RetrievalToolsTest(unittest.TestCase):
                 "slideshow": FakeVectorStore([]),
                 "image": FakeVectorStore([]),
             },
+            datalake_dir="/lake",
         )
 
         result = retriever.query_text("query", 1, 1)
@@ -419,6 +457,12 @@ class RetrievalToolsTest(unittest.TestCase):
         self.assertEqual(2, result["next_offset"])
         self.assertTrue(result["has_more"])
         self.assertEqual("S2", result["results"][0]["content"])
+        self.assertEqual("./notes/a.md", result["results"][0]["execution_file_path"])
+        self.assertEqual("/lake/notes/a.md", result["results"][0]["absolute_file_path"])
+        self.assertEqual(
+            {"unit": "line", "start": 2, "end": 2},
+            result["results"][0]["position"],
+        )
 
     def test_get_file_summary_supports_absolute_path_under_datalake(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -457,6 +501,8 @@ class RetrievalToolsTest(unittest.TestCase):
 
             self.assertEqual("document", summary["modality"])
             self.assertEqual("Quarterly report summary.", summary["summary"])
+            self.assertEqual("./docs/report.pdf", summary["execution_file_path"])
+            self.assertEqual(str(absolute_path), summary["absolute_file_path"])
 
     def test_get_file_summary_accepts_leading_slash_relative_path(self) -> None:
         connection = FakeConnection()
@@ -488,6 +534,7 @@ class RetrievalToolsTest(unittest.TestCase):
                 "slideshow": FakeVectorStore([]),
                 "image": FakeVectorStore([]),
             },
+            datalake_dir="/lake",
         )
 
         summary = retriever.get_file_summary("/number_image/2-cach-viet-chu-so-5.jpg")
@@ -496,6 +543,14 @@ class RetrievalToolsTest(unittest.TestCase):
         self.assertEqual(
             "An image showing how to write the number 5.",
             summary["summary"],
+        )
+        self.assertEqual(
+            "./number_image/2-cach-viet-chu-so-5.jpg",
+            summary["execution_file_path"],
+        )
+        self.assertEqual(
+            "/lake/number_image/2-cach-viet-chu-so-5.jpg",
+            summary["absolute_file_path"],
         )
 
     def test_build_langchain_tools_exposes_expected_names(self) -> None:

@@ -12,6 +12,7 @@ from lake_agent.domain.indexing_models import (
     EnrichedTextResult,
     TextIndexResult,
 )
+from lake_agent.indexing.text.chunking import build_basic_search_text
 
 _SYSTEM_PROMPT = """
 You enrich parsed text documents for a data lake index.
@@ -186,10 +187,9 @@ def _apply_enrichment(
     result.file_keywords = enriched.file_keywords[: options.keyword_limit]
 
     for section in result.sections:
-        section.search_text = _build_section_search_text(
-            heading=section.heading,
-            content=section.content,
-            file_summary=result.file_summary,
+        section.search_text = build_basic_search_text(
+            section.heading,
+            section.content,
         )
     result.file_search_text = _build_file_search_text(result)
 
@@ -221,22 +221,6 @@ def _parse_enrichment_response(
         )
 
     return EnrichedTextResult.model_validate(response)
-
-
-def _build_section_search_text(
-    *,
-    heading: str | None,
-    content: str,
-    file_summary: str | None,
-) -> str:
-    parts: list[str] = []
-    if heading:
-        parts.append(heading)
-    if file_summary:
-        parts.append(file_summary)
-    parts.append(content)
-    return "\n".join(part for part in parts if part).strip()
-
 
 def _build_file_search_text(result: TextIndexResult) -> str | None:
     parts: list[str] = []

@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -226,13 +227,22 @@ def _prepare_vlm_image_payload(
     except ImportError:
         return image_path.read_bytes()
 
-    with Image.open(image_path) as source_image:
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Palette images with Transparency expressed in bytes should be converted to RGBA images",
+            category=UserWarning,
+        )
+        source_image = Image.open(image_path)
+        if source_image.mode == "P" and "transparency" in source_image.info:
+            source_image = source_image.convert("RGBA")
         image = ImageOps.exif_transpose(source_image)
         if getattr(image, "is_animated", False):
             image.seek(0)
             image = image.copy()
         else:
             image = image.copy()
+        source_image.close()
 
     resized = _resize_for_vlm(image, max_long_edge=options.max_long_edge)
     return _encode_vlm_image(resized, jpeg_quality=options.jpeg_quality)

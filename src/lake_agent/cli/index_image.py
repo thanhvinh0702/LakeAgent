@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             repository = ImageIndexRepository(connection)
             ocr_extractor = None
             vlm_enricher = None
-            if not args.no_ocr and os.getenv("OCR_MODEL_URL"):
+            if not args.no_ocr and os.getenv("OCR_MODEL_NAME"):
                 ocr_extractor = OCRMarkdownExtractor.from_env(
                     options=OCRExtractionOptions(batch_size=args.ocr_batch_size)
                 )
@@ -173,6 +173,11 @@ def _build_progress_reporter() -> Callable[[ImageIndexingProgress], None]:
             "errors": progress.error_count,
             "vectors": progress.vector_document_count,
         }
+        if progress.event in {"parsing", "parsed", "flush_pending", "ocr_batch", "vlm_batch", "saving", "vector_flush"} and progress.message:
+            tqdm.write(
+                f"INFO {progress.relative_path or '<batch>'}: {progress.message}",
+                file=sys.stderr,
+            )
         if progress.event == "error" and progress.relative_path and progress.message:
             tqdm.write(f"ERROR {progress.relative_path}: {progress.message}", file=sys.stderr)
         bar.set_postfix(postfix)
@@ -210,6 +215,14 @@ def _plain_progress_reporter() -> Callable[[ImageIndexingProgress], None]:
                 f"errors={progress.error_count}, vectors={progress.vector_document_count}){extra}",
                 file=sys.stderr,
             )
+            return
+
+        if progress.event in {"parsing", "parsed", "flush_pending", "ocr_batch", "vlm_batch", "saving", "vector_flush"}:
+            if progress.message:
+                print(
+                    f"INFO {progress.relative_path or '<batch>'}: {progress.message}",
+                    file=sys.stderr,
+                )
             return
 
         if progress.event == "done":

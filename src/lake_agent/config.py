@@ -124,11 +124,29 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True, slots=True)
 class OCRSettings:
-    model_url: str
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+    request_timeout_seconds: float = 120.0
 
     @classmethod
     def from_env(cls) -> "OCRSettings":
-        return cls(model_url=_required_env("OCR_MODEL_URL"))
+        api_key = _first_env("OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_API_KEY or API_KEY"
+            )
+
+        model_name = _first_env("OCR_MODEL_NAME")
+        if not model_name:
+            raise ValueError("Missing required environment variable: OCR_MODEL_NAME")
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("OCR_BASE_URL", "OPENAI_BASE_URL", "BASE_URL"),
+            request_timeout_seconds=_optional_float_env("OCR_REQUEST_TIMEOUT_SECONDS") or 120.0,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,3 +179,10 @@ def _optional_int_env(*names: str) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_float_env(*names: str) -> float | None:
+    value = _first_env(*names)
+    if value is None:
+        return None
+    return float(value)

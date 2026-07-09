@@ -19,6 +19,7 @@ _SUPPORTED_FORMATS = {"txt", "md"}
 class TextParseOptions:
     max_chars_per_chunk: int = 2400
     min_chunk_chars: int = 400
+    target_chars_per_chunk: int = 1000
 
 
 class DeterministicTextParser:
@@ -68,6 +69,7 @@ class DeterministicTextParser:
                     normalized_text,
                     max_chars=self._options.max_chars_per_chunk,
                     min_chars=self._options.min_chunk_chars,
+                    target_chars=self._options.target_chars_per_chunk,
                 ),
                 normalized_source_id,
             )
