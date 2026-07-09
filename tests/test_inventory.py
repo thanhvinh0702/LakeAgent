@@ -137,9 +137,9 @@ class InventoryServiceTest(unittest.TestCase):
             repository,
         )
 
-        first = service.run("datalake")
+        first = service.run("")
         reads_after_first = store.range_reads
-        second = service.run("datalake")
+        second = service.run("")
 
         self.assertEqual(2, first["identified_count"])
         self.assertEqual(0, first["unchanged_count"])
