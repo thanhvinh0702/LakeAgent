@@ -11,7 +11,7 @@ Set these in `.env`:
 OPENROUTER_API_KEY=...
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
-ASR_MODEL_NAME=qwen/qwen3-asr-flash-2026-02-10
+ASR_MODEL_NAME=microsoft/mai-transcribe-1.5
 ASR_FALLBACK_MODEL_NAME=mistralai/voxtral-mini-transcribe
 ASR_MAX_CHUNK_SECONDS=600
 ASR_CHUNK_OVERLAP_SECONDS=8

@@ -18,6 +18,7 @@ ModalityName = Literal[
     "document",
     "slideshow",
     "image",
+    "epub",
     "audio",
     "video",
 ]
@@ -31,6 +32,7 @@ class RetrievalTableNames:
     document: str = "document_index"
     slideshow: str = "slideshow_index"
     image: str = "image_index"
+    epub: str = "epub_index"
     audio: str = "audio_index"
     video: str = "video_index"
 
@@ -121,6 +123,11 @@ class IndexedDataRetriever:
                 embedding_settings=embedding_settings,
                 postgres_settings=postgres_settings,
             ),
+            "epub": build_pgvector_store(
+                table_names.epub,
+                embedding_settings=embedding_settings,
+                postgres_settings=postgres_settings,
+            ),
             "audio": build_pgvector_store(
                 table_names.audio,
                 embedding_settings=embedding_settings,
@@ -161,6 +168,9 @@ class IndexedDataRetriever:
     def query_image(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("image", query, limit, offset)
 
+    def query_epub(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
+        return self._query_modality("epub", query, limit, offset)
+
     def query_audio(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("audio", query, limit, offset)
 
@@ -177,9 +187,18 @@ class IndexedDataRetriever:
             "document",
             "slideshow",
             "image",
+            "epub",
             "audio",
             "video",
         ):
+            if modality not in self._vector_stores:
+                skipped_modalities.append(
+                    {
+                        "modality": modality,
+                        "reason": "vector_store_not_configured",
+                    }
+                )
+                continue
             try:
                 modality_results = self._query_modality(modality, query, limit + offset, 0)["results"]
             except Exception as exc:
@@ -218,6 +237,7 @@ class IndexedDataRetriever:
                 "document",
                 "slideshow",
                 "image",
+                "epub",
                 "audio",
                 "video",
             ):
@@ -301,6 +321,13 @@ class IndexedDataRetriever:
                 return self._format_image_file_hit(row, score)
             row = self._load_image_section(str(metadata["section_id"]))
             return self._format_image_section_hit(row, score)
+
+        if modality == "epub":
+            if record_type == "file":
+                row = self._load_epub_file(str(metadata["source_id"]))
+                return self._format_epub_file_hit(row, score)
+            row = self._load_epub_section(str(metadata["section_id"]))
+            return self._format_epub_section_hit(row, score)
 
         if modality == "audio":
             if record_type == "file":
@@ -501,6 +528,39 @@ class IndexedDataRetriever:
             raise ValueError(f"Missing image section row for section_id={section_id}")
         return row
 
+    def _load_epub_file(self, source_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, title, creators,
+                   language, publisher, identifier, chapter_count, image_count,
+                   vl_model_name, file_summary, file_keywords, parse_warnings
+            FROM epub_files
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing EPUB file row for source_id={source_id}")
+        return row
+
+    def _load_epub_section(self, section_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT s.section_id, s.source_id, f.relative_path, f.filename, f.file_format,
+                   f.title, f.creators, f.language, f.vl_model_name,
+                   s.section_type, s.chunk_index, s.heading, s.content, s.search_text,
+                   s.chapter_index, s.chapter_title, s.chapter_href, s.image_id,
+                   s.image_index, s.image_href, s.char_count, s.warnings
+            FROM epub_sections AS s
+            JOIN epub_files AS f ON f.source_id = s.source_id
+            WHERE s.section_id = %s
+            """,
+            (section_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing EPUB section row for section_id={section_id}")
+        return row
+
     def _load_audio_file(self, source_id: str) -> dict[str, Any]:
         row = self._connection.execute(
             """
@@ -629,6 +689,18 @@ class IndexedDataRetriever:
                    color_mode, has_alpha, is_animated, frame_count, file_summary,
                    file_keywords, parse_warnings
             FROM image_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def _load_epub_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, title, creators,
+                   language, publisher, identifier, chapter_count, image_count,
+                   vl_model_name, file_summary, file_keywords, parse_warnings
+            FROM epub_files
             WHERE relative_path = %s
             """,
             (relative_path,),
@@ -829,6 +901,44 @@ class IndexedDataRetriever:
         self._attach_absolute_file_path(hit)
         return hit
 
+    def _format_epub_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "epub",
+            "record_type": "file",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["file_summary"] or row.get("title"),
+            "title": row["title"],
+            "creators": row["creators"],
+            "language": row["language"],
+            "chapter_count": row["chapter_count"],
+            "image_count": row["image_count"],
+            "vl_model_name": row["vl_model_name"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_epub_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "epub",
+            "record_type": "section",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row.get("search_text") or row["content"],
+            "title": row["title"],
+            "creators": row["creators"],
+            "language": row["language"],
+            "section_type": row["section_type"],
+            "chapter_index": row["chapter_index"],
+            "chapter_title": row["chapter_title"],
+            "chapter_href": row["chapter_href"],
+            "image_index": row["image_index"],
+            "image_href": row["image_href"],
+            "vl_model_name": row["vl_model_name"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
     def _format_audio_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
         hit = {
             "modality": "audio",
@@ -913,6 +1023,15 @@ class IndexedDataRetriever:
             base["has_alpha"] = row["has_alpha"]
             base["is_animated"] = row["is_animated"]
             base["frame_count"] = row["frame_count"]
+        if modality == "epub":
+            base["title"] = row["title"]
+            base["creators"] = row["creators"]
+            base["language"] = row["language"]
+            base["publisher"] = row["publisher"]
+            base["identifier"] = row["identifier"]
+            base["chapter_count"] = row["chapter_count"]
+            base["image_count"] = row["image_count"]
+            base["vl_model_name"] = row["vl_model_name"]
         if modality == "audio":
             base["duration_seconds"] = row["duration_seconds"]
             base["codec_name"] = row["codec_name"]
@@ -1038,6 +1157,15 @@ def build_langchain_retrieval_tools(
             description=(
                 "Search indexed image files and return the nearest file or OCR/summary section hits "
                 "with true content, metadata, and score."
+            ),
+            args_schema=SearchArgs,
+        ),
+        StructuredTool.from_function(
+            func=_search(retriever.query_epub),
+            name="search_epub_data",
+            description=(
+                "Search indexed EPUB/light novel books and return nearest file, chapter text, or "
+                "embedded image caption hits with true content, chapter metadata, and score."
             ),
             args_schema=SearchArgs,
         ),

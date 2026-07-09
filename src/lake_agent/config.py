@@ -241,6 +241,41 @@ class VideoVLSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class EpubVLSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "EpubVLSettings":
+        api_key = _first_env(
+            "EPUB_VL_API_KEY",
+            "VIDEO_VL_API_KEY",
+            "OPENAI_API_KEY",
+            "API_KEY",
+        )
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: "
+                "EPUB_VL_API_KEY, VIDEO_VL_API_KEY, OPENAI_API_KEY, or API_KEY"
+            )
+
+        model_name = _first_env("EPUB_VL_MODEL_NAME") or "openrouter/qwen/qwen3-vl-32b-instruct"
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env(
+                "EPUB_VL_BASE_URL",
+                "VIDEO_VL_BASE_URL",
+                "VL_BASE_URL",
+                "OPENAI_BASE_URL",
+                "BASE_URL",
+            )
+            or "http://localhost:20128/v1",
+        )
+
+
 def _optional_int_env(*names: str) -> int | None:
     value = _first_env(*names)
     if value is None:

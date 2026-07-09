@@ -132,6 +132,22 @@ class CrossRetriever:
                 ).fetchall()
                 results.extend([{"filename": r["filename"], "content": r["file_summary"]} for r in rows])
 
+            elif modality == "epub":
+                rows = conn.execute(
+                    "SELECT filename, section_type, chapter_index, chapter_title, content FROM epub_sections s "
+                    "JOIN epub_files f ON s.source_id = f.source_id "
+                    "WHERE s.search_text ILIKE %s OR s.content ILIKE %s LIMIT 5",
+                    (q_term, q_term)
+                ).fetchall()
+                for r in rows:
+                    chapter = ""
+                    if r["chapter_index"] is not None:
+                        title = f": {r['chapter_title']}" if r["chapter_title"] else ""
+                        chapter = f"[Chapter {r['chapter_index']}{title} / {r['section_type']}]\n"
+                    else:
+                        chapter = f"[{r['section_type']}]\n"
+                    results.append({"filename": r["filename"], "content": f"{chapter}{r['content']}"})
+
             elif modality == "audio":
                 rows = conn.execute(
                     "SELECT filename, content, start_seconds, end_seconds FROM audio_sections s "
@@ -191,6 +207,7 @@ class CrossRetriever:
             "tabular": [".csv", ".tsv", ".xlsx", ".xls"],
             "image": [".png", ".jpg", ".jpeg", ".webp"],
             "document": [".pdf", ".docx", ".pptx", ".ppt"],
+            "epub": [".epub"],
             "audio": [".m4a", ".mp3", ".wav", ".flac", ".ogg"],
             "video": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
             "database": [".db", ".sqlite", ".sqlite3"]
@@ -224,6 +241,8 @@ class CrossRetriever:
                 content = self._read_office_doc(f)
             elif ext in [".png", ".jpg", ".jpeg", ".webp"]:
                 content = self._describe_image_via_vlm(f)
+            elif ext == ".epub":
+                content = f"EPUB file: {f.name}. Run lake-index-epub for chapter text and embedded image captions."
             elif ext in [".m4a", ".mp3", ".wav"]:
                 content = self._read_audio_transcript_fallback(f)
             elif ext in [".mp4", ".mkv", ".mov", ".avi", ".webm"]:

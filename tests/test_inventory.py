@@ -120,6 +120,16 @@ class ObjectIdentifierTest(unittest.TestCase):
         self.assertEqual(Modality.SQL_SCRIPT, result.modality)
         self.assertEqual("utf-8", result.encoding)
 
+    def test_epub_is_identified_as_epub(self) -> None:
+        store = FakeObjectStore({"books/story.epub": b"PK\x03\x04epub content"})
+        obj = next(store.list_objects())
+
+        result = ObjectIdentifier(store).identify(obj)
+
+        self.assertEqual("epub", result.detected_format)
+        self.assertEqual(Modality.EPUB, result.modality)
+        self.assertEqual("application/epub+zip", result.detected_mime_type)
+
 
 class InventoryServiceTest(unittest.TestCase):
     def test_second_run_skips_unchanged_objects(self) -> None:

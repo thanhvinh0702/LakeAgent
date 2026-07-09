@@ -148,6 +148,75 @@ CREATE INDEX IF NOT EXISTS idx_text_sections_chunk_index
     ON text_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS epub_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    title TEXT,
+    creators JSONB NOT NULL DEFAULT '[]'::jsonb,
+    language TEXT,
+    publisher TEXT,
+    identifier TEXT,
+    chapter_count INTEGER NOT NULL DEFAULT 0,
+    image_count INTEGER NOT NULL DEFAULT 0,
+    vl_model_name TEXT,
+    parser_version TEXT NOT NULL DEFAULT 'epub_zip_xhtml_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_epub_files_relative_path
+    ON epub_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_epub_files_format
+    ON epub_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_epub_files_status
+    ON epub_files(status);
+
+
+CREATE TABLE IF NOT EXISTS epub_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES epub_files(source_id) ON DELETE CASCADE,
+    section_type TEXT NOT NULL DEFAULT 'chapter_text',
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    chapter_index INTEGER,
+    chapter_title TEXT,
+    chapter_href TEXT,
+    image_id TEXT,
+    image_index INTEGER,
+    image_href TEXT,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_epub_sections_source_id
+    ON epub_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_epub_sections_chunk_index
+    ON epub_sections(chunk_index);
+
+CREATE INDEX IF NOT EXISTS idx_epub_sections_chapter_index
+    ON epub_sections(chapter_index);
+
+
 CREATE TABLE IF NOT EXISTS audio_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,

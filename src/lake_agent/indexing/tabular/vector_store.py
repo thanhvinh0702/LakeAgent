@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 from typing import Any
 
 from langchain_core.documents import Document
@@ -29,6 +31,7 @@ def build_pgvector_store(
     embedding_settings: EmbeddingSettings | None = None,
     postgres_settings: PostgresSettings | None = None,
 ) -> Any:
+    _ensure_compatible_event_loop_policy()
     postgres_settings = postgres_settings or PostgresSettings.from_env()
     embedding_settings = embedding_settings or EmbeddingSettings.from_env()
     vector_size = _vector_size(embedding_settings)
@@ -45,6 +48,17 @@ def build_pgvector_store(
         table_name=table_name,
         id_column="langchain_id",
     )
+
+
+def _ensure_compatible_event_loop_policy() -> None:
+    if sys.platform != "win32":
+        return
+    policy_factory = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if policy_factory is None:
+        return
+    if isinstance(asyncio.get_event_loop_policy(), policy_factory):
+        return
+    asyncio.set_event_loop_policy(policy_factory())
 
 
 def build_tabular_documents(result: TabularIndexResult) -> list[Document]:
