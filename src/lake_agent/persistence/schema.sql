@@ -148,6 +148,67 @@ CREATE INDEX IF NOT EXISTS idx_text_sections_chunk_index
     ON text_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS audio_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    duration_seconds DOUBLE PRECISION,
+    codec_name TEXT,
+    sample_rate INTEGER,
+    channels INTEGER,
+    transcript_language TEXT,
+    transcript_text TEXT,
+    asr_model_name TEXT,
+    asr_cost_usd DOUBLE PRECISION,
+    asr_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+    parser_version TEXT NOT NULL DEFAULT 'asr_wav16k_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audio_files_relative_path
+    ON audio_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_audio_files_format
+    ON audio_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_audio_files_status
+    ON audio_files(status);
+
+
+CREATE TABLE IF NOT EXISTS audio_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES audio_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    start_seconds DOUBLE PRECISION,
+    end_seconds DOUBLE PRECISION,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audio_sections_source_id
+    ON audio_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_audio_sections_chunk_index
+    ON audio_sections(chunk_index);
+
+
 CREATE TABLE IF NOT EXISTS document_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,

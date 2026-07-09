@@ -11,7 +11,7 @@ from lake_agent.config import EmbeddingSettings, LocalSettings, PostgresSettings
 from lake_agent.indexing.tabular.vector_store import build_pgvector_store
 from lake_agent.persistence.database import PostgresDatabase
 
-ModalityName = Literal["tabular", "text", "document", "slideshow", "image"]
+ModalityName = Literal["tabular", "text", "document", "slideshow", "image", "audio"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +21,7 @@ class RetrievalTableNames:
     document: str = "document_index"
     slideshow: str = "slideshow_index"
     image: str = "image_index"
+    audio: str = "audio_index"
 
 
 class SearchArgs(BaseModel):
@@ -104,6 +105,11 @@ class IndexedDataRetriever:
                 embedding_settings=embedding_settings,
                 postgres_settings=postgres_settings,
             ),
+            "audio": build_pgvector_store(
+                table_names.audio,
+                embedding_settings=embedding_settings,
+                postgres_settings=postgres_settings,
+            ),
         }
         return cls(
             connection,
@@ -131,10 +137,13 @@ class IndexedDataRetriever:
     def query_image(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("image", query, limit, offset)
 
+    def query_audio(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
+        return self._query_modality("audio", query, limit, offset)
+
     def query_all(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         combined: list[dict[str, Any]] = []
         skipped_modalities: list[dict[str, str]] = []
-        for modality in ("tabular", "text", "document", "slideshow", "image"):
+        for modality in ("tabular", "text", "document", "slideshow", "image", "audio"):
             try:
                 modality_results = self._query_modality(modality, query, limit + offset, 0)["results"]
             except Exception as exc:
@@ -166,7 +175,7 @@ class IndexedDataRetriever:
     def get_file_summary(self, file_path: str) -> dict[str, Any]:
         candidates = self._candidate_file_paths(file_path)
         for candidate in candidates:
-            for modality in ("tabular", "text", "document", "slideshow", "image"):
+            for modality in ("tabular", "text", "document", "slideshow", "image", "audio"):
                 loader = getattr(self, f"_load_{modality}_file_by_path")
                 row = loader(candidate)
                 if row is not None:
@@ -240,6 +249,13 @@ class IndexedDataRetriever:
                 return self._format_image_file_hit(row, score)
             row = self._load_image_section(str(metadata["section_id"]))
             return self._format_image_section_hit(row, score)
+
+        if modality == "audio":
+            if record_type == "file":
+                row = self._load_audio_file(str(metadata["source_id"]))
+                return self._format_audio_file_hit(row, score)
+            row = self._load_audio_section(str(metadata["section_id"]))
+            return self._format_audio_section_hit(row, score)
 
         raise ValueError(f"Unsupported modality: {modality}")
 
@@ -395,6 +411,38 @@ class IndexedDataRetriever:
             raise ValueError(f"Missing image section row for section_id={section_id}")
         return row
 
+    def _load_audio_file(self, source_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, duration_seconds,
+                   codec_name, sample_rate, channels, asr_model_name, asr_cost_usd,
+                   file_summary, file_keywords, parse_warnings
+            FROM audio_files
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing audio file row for source_id={source_id}")
+        return row
+
+    def _load_audio_section(self, section_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT s.section_id, s.source_id, f.relative_path, f.filename, f.file_format,
+                   s.chunk_index, s.start_seconds, s.end_seconds, s.content,
+                   s.search_text, s.char_count, s.warnings, f.duration_seconds,
+                   f.asr_model_name
+            FROM audio_sections AS s
+            JOIN audio_files AS f ON f.source_id = s.source_id
+            WHERE s.section_id = %s
+            """,
+            (section_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing audio section row for section_id={section_id}")
+        return row
+
     def _load_tabular_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
         return self._connection.execute(
             """
@@ -446,6 +494,18 @@ class IndexedDataRetriever:
                    color_mode, has_alpha, is_animated, frame_count, file_summary,
                    file_keywords, parse_warnings
             FROM image_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def _load_audio_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, duration_seconds,
+                   codec_name, sample_rate, channels, asr_model_name, asr_cost_usd,
+                   file_summary, file_keywords, parse_warnings
+            FROM audio_files
             WHERE relative_path = %s
             """,
             (relative_path,),
@@ -551,6 +611,30 @@ class IndexedDataRetriever:
             "height": row["height"],
         }
 
+    def _format_audio_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        return {
+            "modality": "audio",
+            "record_type": "file",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["file_summary"],
+            "duration_seconds": row["duration_seconds"],
+            "asr_model_name": row["asr_model_name"],
+        }
+
+    def _format_audio_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        return {
+            "modality": "audio",
+            "record_type": "section",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row.get("search_text") or row["content"],
+            "start_seconds": row["start_seconds"],
+            "end_seconds": row["end_seconds"],
+            "duration_seconds": row["duration_seconds"],
+            "asr_model_name": row["asr_model_name"],
+        }
+
     def _format_file_summary(self, modality: ModalityName, row: dict[str, Any]) -> dict[str, Any]:
         base = {
             "modality": modality,
@@ -570,6 +654,13 @@ class IndexedDataRetriever:
             base["has_alpha"] = row["has_alpha"]
             base["is_animated"] = row["is_animated"]
             base["frame_count"] = row["frame_count"]
+        if modality == "audio":
+            base["duration_seconds"] = row["duration_seconds"]
+            base["codec_name"] = row["codec_name"]
+            base["sample_rate"] = row["sample_rate"]
+            base["channels"] = row["channels"]
+            base["asr_model_name"] = row["asr_model_name"]
+            base["asr_cost_usd"] = row["asr_cost_usd"]
         return base
 
     def _normalize_file_path(self, file_path: str) -> str:
@@ -655,6 +746,15 @@ def build_langchain_retrieval_tools(
             description=(
                 "Search indexed image files and return the nearest file or OCR/summary section hits "
                 "with true content, metadata, and score."
+            ),
+            args_schema=SearchArgs,
+        ),
+        StructuredTool.from_function(
+            func=_search(retriever.query_audio),
+            name="search_audio_data",
+            description=(
+                "Search indexed audio transcripts such as MP3/WAV/M4A/FLAC/OGG files and return "
+                "nearest file or transcript section hits with true content, timestamps, metadata, and score."
             ),
             args_schema=SearchArgs,
         ),

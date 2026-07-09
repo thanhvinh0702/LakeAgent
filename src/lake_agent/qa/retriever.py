@@ -36,15 +36,15 @@ class CrossRetriever:
         if datalake_dir is not None:
             self.datalake_dir = Path(datalake_dir)
         else:
-            load_dotenv("d:/LakeAgent/.env")
+            load_dotenv()
             try:
                 self.local_settings = LocalSettings.from_env()
                 self.datalake_dir = Path(self.local_settings.datalake_dir)
             except Exception:
-                self.datalake_dir = Path("d:/LakeAgent/Data-Lake")
+                self.datalake_dir = Path("Data-Lake")
             
         try:
-            load_dotenv("d:/LakeAgent/.env")
+            load_dotenv()
             self.postgres_settings = PostgresSettings.from_env()
             self.db = PostgresDatabase(self.postgres_settings.dsn)
         except Exception:
@@ -131,6 +131,19 @@ class CrossRetriever:
                     (q_term,)
                 ).fetchall()
                 results.extend([{"filename": r["filename"], "content": r["file_summary"]} for r in rows])
+
+            elif modality == "audio":
+                rows = conn.execute(
+                    "SELECT filename, content, start_seconds, end_seconds FROM audio_sections s "
+                    "JOIN audio_files f ON s.source_id = f.source_id "
+                    "WHERE s.search_text ILIKE %s OR s.content ILIKE %s LIMIT 5",
+                    (q_term, q_term)
+                ).fetchall()
+                for r in rows:
+                    timing = ""
+                    if r["start_seconds"] is not None and r["end_seconds"] is not None:
+                        timing = f"[{r['start_seconds']:.1f}s-{r['end_seconds']:.1f}s]\n"
+                    results.append({"filename": r["filename"], "content": f"{timing}{r['content']}"})
                 
         return results
 
@@ -162,7 +175,7 @@ class CrossRetriever:
             "tabular": [".csv", ".tsv", ".xlsx", ".xls"],
             "image": [".png", ".jpg", ".jpeg", ".webp"],
             "document": [".pdf", ".docx", ".pptx", ".ppt"],
-            "audio": [".m4a", ".mp3", ".wav"],
+            "audio": [".m4a", ".mp3", ".wav", ".flac", ".ogg"],
             "database": [".db", ".sqlite", ".sqlite3"]
         }
         
@@ -357,13 +370,7 @@ class CrossRetriever:
             return f"Image file: {path.name}. VLM analysis failed: {e}"
 
     def _read_audio_transcript_fallback(self, path: Path) -> str:
-        if path.name == "workshop_03.22.m4a":
-            return (
-                "Transcript of meeting AI workshop for first-year students on March 22, 2026:\n"
-                "Speaker 1: Welcome everyone to the AI workshop for first-year students today, March 22, 2026.\n"
-                "Speaker 2: Thank you. We have a great turn out today. Let's count the participants. "
-                "We have 150 students registered online, and looking at the room, we have exactly 120 attendees "
-                "present here, plus 5 organizers, making it a total of 125 people in the room.\n"
-                "Speaker 1: Great. Let's start the presentation on AI trends..."
-            )
-        return f"Audio file: {path.name}. Transcription not available."
+        return (
+            f"Audio file: {path.name}. Transcript is not available in the fallback reader. "
+            "Run lake-index-audio so audio_sections can be retrieved from Postgres."
+        )

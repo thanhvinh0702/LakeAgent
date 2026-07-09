@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class QAPipeline:
     def __init__(self, xlsx_path: str = "question.xlsx", output_csv_path: str = "submission.csv") -> None:
-        load_dotenv("d:/LakeAgent/.env")
+        load_dotenv()
         self.xlsx_path = Path(xlsx_path)
         self.output_csv_path = Path(output_csv_path)
         

@@ -156,6 +156,34 @@ class VLSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ASRSettings:
+    api_key: str
+    model_name: str
+    base_url: str
+    fallback_model_name: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "ASRSettings":
+        api_key = _first_env("ASR_API_KEY", "OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: ASR_API_KEY or OPENROUTER_API_KEY"
+            )
+
+        model_name = _first_env("ASR_MODEL_NAME")
+        if not model_name:
+            raise ValueError("Missing required environment variable: ASR_MODEL_NAME")
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("ASR_BASE_URL", "OPENROUTER_BASE_URL")
+            or "https://openrouter.ai/api/v1",
+            fallback_model_name=_first_env("ASR_FALLBACK_MODEL_NAME"),
+        )
+
+
 def _optional_int_env(*names: str) -> int | None:
     value = _first_env(*names)
     if value is None:

@@ -11,7 +11,7 @@ def _load_dotenv() -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    load_dotenv("d:/LakeAgent/.env")
+    load_dotenv()
 
 
 def build_parser() -> argparse.ArgumentParser:

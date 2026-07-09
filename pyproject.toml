@@ -14,6 +14,7 @@ dependencies = [
     "langchain-openai",
     "deepagents",
     "gradio_client>=1.0,<2",
+    "openai>=1.100,<3",
     "Pillow>=10.0,<12",
     "pydantic>=2.0,<3",
     "psycopg[binary]>=3.2,<4",
@@ -23,6 +24,7 @@ dependencies = [
 [project.scripts]
 lake-inventory = "lake_agent.cli.inventory:main"
 lake-index-image = "lake_agent.cli.index_image:main"
+lake-index-audio = "lake_agent.cli.index_audio:main"
 lake-index-tabular = "lake_agent.cli.index_tabular:main"
 lake-index-text = "lake_agent.cli.index_text:main"
 lake-index-document = "lake_agent.cli.index_document:main"

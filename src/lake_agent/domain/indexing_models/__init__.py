@@ -1,5 +1,10 @@
 """Domain models for indexing pipelines."""
 
+from lake_agent.domain.indexing_models.audio import (
+    AudioFormat,
+    AudioIndexResult,
+    AudioSection,
+)
 from lake_agent.domain.indexing_models.document import (
     DocumentFormat,
     DocumentEmbeddedImage,
@@ -73,6 +78,9 @@ from lake_agent.domain.indexing_models.database_enrichment import (
 )
 
 __all__ = [
+    "AudioFormat",
+    "AudioIndexResult",
+    "AudioSection",
     "ColumnProfile",
     "DatabaseFormat",
     "DatabaseIndexResult",
