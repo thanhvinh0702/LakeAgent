@@ -7,11 +7,16 @@ from typing import Any, Mapping
 
 from lake_agent.domain.enums import FileStatus
 from lake_agent.domain.indexing_models import (
+    AudioIndexResult,
+    DatabaseIndexResult,
     DocumentIndexResult,
     ImageIndexResult,
-    JsonIndexResult,
+    SlideshowIndexResult,
+    SqlScriptIndexResult,
     TabularIndexResult,
     TextIndexResult,
+    VideoIndexResult,
+    WebIndexResult,
 )
 from lake_agent.domain.models import FileMetadata
 
@@ -551,6 +556,642 @@ class TextIndexRepository:
         )
 
 
+class WebIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM web_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: WebIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO web_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, parser_version, parse_warnings,
+                file_summary, file_keywords, file_search_text, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s::jsonb,
+                %s, %s::jsonb, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM web_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO web_sections (
+                    section_id, source_id, chunk_index, heading,
+                    content, line_start, line_end, char_count,
+                    search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.chunk_index,
+                    section.heading,
+                    section.content,
+                    section.line_start,
+                    section.line_end,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO web_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM web_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE web_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE web_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+
+class AudioIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM audio_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: AudioIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO audio_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, duration_seconds, codec_name,
+                sample_rate, channels, transcript_language, transcript_text,
+                asr_model_name, asr_cost_usd, asr_usage, parser_version,
+                parse_warnings, file_summary, file_keywords, file_search_text,
+                status, error_message, first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s::jsonb, %s,
+                %s::jsonb, %s, %s::jsonb, %s,
+                %s, %s, %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                duration_seconds = EXCLUDED.duration_seconds,
+                codec_name = EXCLUDED.codec_name,
+                sample_rate = EXCLUDED.sample_rate,
+                channels = EXCLUDED.channels,
+                transcript_language = EXCLUDED.transcript_language,
+                transcript_text = EXCLUDED.transcript_text,
+                asr_model_name = EXCLUDED.asr_model_name,
+                asr_cost_usd = EXCLUDED.asr_cost_usd,
+                asr_usage = EXCLUDED.asr_usage,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.duration_seconds,
+                result.codec_name,
+                result.sample_rate,
+                result.channels,
+                result.transcript_language,
+                result.transcript_text,
+                result.asr_model_name,
+                result.asr_cost_usd,
+                json.dumps(result.asr_usage),
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM audio_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO audio_sections (
+                    section_id, source_id, chunk_index, start_seconds,
+                    end_seconds, content, char_count, search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.chunk_index,
+                    section.start_seconds,
+                    section.end_seconds,
+                    section.content,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO audio_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM audio_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE audio_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE audio_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+class VideoIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM video_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: VideoIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO video_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, duration_seconds, width, height, fps,
+                video_codec, audio_codec, has_audio, sampled_frame_count,
+                asr_model_name, asr_cost_usd, asr_usage, vl_model_name,
+                parser_version, parse_warnings, file_summary, file_keywords,
+                file_search_text, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s::jsonb, %s,
+                %s, %s::jsonb, %s, %s::jsonb,
+                %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                duration_seconds = EXCLUDED.duration_seconds,
+                width = EXCLUDED.width,
+                height = EXCLUDED.height,
+                fps = EXCLUDED.fps,
+                video_codec = EXCLUDED.video_codec,
+                audio_codec = EXCLUDED.audio_codec,
+                has_audio = EXCLUDED.has_audio,
+                sampled_frame_count = EXCLUDED.sampled_frame_count,
+                asr_model_name = EXCLUDED.asr_model_name,
+                asr_cost_usd = EXCLUDED.asr_cost_usd,
+                asr_usage = EXCLUDED.asr_usage,
+                vl_model_name = EXCLUDED.vl_model_name,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.duration_seconds,
+                result.width,
+                result.height,
+                result.fps,
+                result.video_codec,
+                result.audio_codec,
+                result.has_audio,
+                result.sampled_frame_count,
+                result.asr_model_name,
+                result.asr_cost_usd,
+                json.dumps(result.asr_usage),
+                result.vl_model_name,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM video_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO video_sections (
+                    section_id, source_id, section_type, chunk_index,
+                    timestamp_seconds, start_seconds, end_seconds, frame_index,
+                    content, char_count, search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.section_type,
+                    section.chunk_index,
+                    section.timestamp_seconds,
+                    section.start_seconds,
+                    section.end_seconds,
+                    section.frame_index,
+                    section.content,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO video_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+        self._connection.execute(
+            "DELETE FROM video_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE video_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE video_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
 class DocumentIndexRepository:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
@@ -632,18 +1273,19 @@ class DocumentIndexRepository:
             self._connection.execute(
                 """
                 INSERT INTO document_sections (
-                    section_id, source_id, chunk_index, heading,
+                    section_id, source_id, section_type, chunk_index, heading,
                     content, page_start, page_end, char_count,
-                    search_text, warnings
+                    search_text, image_id, image_index, warnings
                 ) VALUES (
+                    %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s::jsonb
+                    %s, %s, %s, %s::jsonb
                 )
                 """,
                 (
                     section.section_id,
                     result.source_id,
+                    section.section_type,
                     section.chunk_index,
                     section.heading,
                     section.content,
@@ -651,6 +1293,8 @@ class DocumentIndexRepository:
                     section.page_end,
                     section.char_count,
                     section.search_text,
+                    section.image_id,
+                    section.image_index,
                     json.dumps(section.warnings),
                 ),
             )
@@ -747,7 +1391,7 @@ class DocumentIndexRepository:
         )
 
 
-class JsonIndexRepository:
+class SlideshowIndexRepository:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
 
@@ -755,7 +1399,7 @@ class JsonIndexRepository:
         return self._connection.execute(
             """
             SELECT source_id, size_bytes, last_modified, file_format, status
-            FROM json_files
+            FROM slideshow_files
             WHERE relative_path = %s
             """,
             (relative_path,),
@@ -763,7 +1407,7 @@ class JsonIndexRepository:
 
     def save(
         self,
-        result: JsonIndexResult,
+        result: SlideshowIndexResult,
         *,
         size_bytes: int,
         last_modified: datetime | None,
@@ -771,16 +1415,14 @@ class JsonIndexRepository:
     ) -> None:
         self._connection.execute(
             """
-            INSERT INTO json_files (
+            INSERT INTO slideshow_files (
                 source_id, relative_path, filename, file_format,
                 size_bytes, last_modified, parser_version, parse_warnings,
-                top_level_type, entry_count, max_depth,
                 file_summary, file_keywords, file_search_text, status, error_message,
                 first_indexed_at, last_indexed_at, is_present
             ) VALUES (
                 %s, %s, %s, %s,
                 %s, %s, %s, %s::jsonb,
-                %s, %s, %s,
                 %s, %s::jsonb, %s, %s, %s,
                 %s, %s, %s
             )
@@ -792,9 +1434,6 @@ class JsonIndexRepository:
                 last_modified = EXCLUDED.last_modified,
                 parser_version = EXCLUDED.parser_version,
                 parse_warnings = EXCLUDED.parse_warnings,
-                top_level_type = EXCLUDED.top_level_type,
-                entry_count = EXCLUDED.entry_count,
-                max_depth = EXCLUDED.max_depth,
                 file_summary = EXCLUDED.file_summary,
                 file_keywords = EXCLUDED.file_keywords,
                 file_search_text = EXCLUDED.file_search_text,
@@ -813,9 +1452,6 @@ class JsonIndexRepository:
                 last_modified,
                 result.parser_version,
                 json.dumps(result.parse_warnings),
-                result.top_level_type,
-                result.entry_count,
-                result.max_depth,
                 result.file_summary,
                 json.dumps(result.file_keywords),
                 result.file_search_text,
@@ -828,33 +1464,36 @@ class JsonIndexRepository:
         )
 
         self._connection.execute(
-            "DELETE FROM json_sections WHERE source_id = %s",
+            "DELETE FROM slideshow_sections WHERE source_id = %s",
             (result.source_id,),
         )
 
         for section in result.sections:
             self._connection.execute(
                 """
-                INSERT INTO json_sections (
-                    section_id, source_id, chunk_index,
-                    path_start, path_end, entry_count,
-                    content, char_count, search_text, warnings
+                INSERT INTO slideshow_sections (
+                    section_id, source_id, section_type, chunk_index, heading,
+                    content, slide_start, slide_end, char_count,
+                    search_text, image_id, image_index, warnings
                 ) VALUES (
-                    %s, %s, %s,
-                    %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
                     %s, %s, %s, %s::jsonb
                 )
                 """,
                 (
                     section.section_id,
                     result.source_id,
+                    section.section_type,
                     section.chunk_index,
-                    section.path_start,
-                    section.path_end,
-                    section.entry_count,
+                    section.heading,
                     section.content,
+                    section.slide_start,
+                    section.slide_end,
                     section.char_count,
                     section.search_text,
+                    section.image_id,
+                    section.image_index,
                     json.dumps(section.warnings),
                 ),
             )
@@ -873,7 +1512,7 @@ class JsonIndexRepository:
     ) -> None:
         self._connection.execute(
             """
-            INSERT INTO json_files (
+            INSERT INTO slideshow_files (
                 source_id, relative_path, filename, file_format,
                 size_bytes, last_modified, status, error_message,
                 first_indexed_at, last_indexed_at, is_present
@@ -910,7 +1549,7 @@ class JsonIndexRepository:
         )
 
         self._connection.execute(
-            "DELETE FROM json_sections WHERE source_id = %s",
+            "DELETE FROM slideshow_sections WHERE source_id = %s",
             (source_id,),
         )
 
@@ -918,7 +1557,7 @@ class JsonIndexRepository:
         if prefix:
             self._connection.execute(
                 """
-                UPDATE json_files
+                UPDATE slideshow_files
                 SET is_present = FALSE,
                     status = %s,
                     updated_at = NOW()
@@ -940,7 +1579,7 @@ class JsonIndexRepository:
 
         self._connection.execute(
             """
-            UPDATE json_files
+            UPDATE slideshow_files
             SET is_present = FALSE,
                 status = %s,
                 updated_at = NOW()
@@ -1160,6 +1799,393 @@ class ImageIndexRepository:
         self._connection.execute(
             """
             UPDATE image_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+class SqlScriptIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM sql_script_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: SqlScriptIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO sql_script_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, parser_version, parse_warnings,
+                file_summary, file_keywords, file_search_text, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s::jsonb,
+                %s, %s::jsonb, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM sql_script_sections WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for section in result.sections:
+            self._connection.execute(
+                """
+                INSERT INTO sql_script_sections (
+                    section_id, source_id, chunk_index, heading,
+                    content, char_count, search_text, warnings
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb
+                )
+                """,
+                (
+                    section.section_id,
+                    result.source_id,
+                    section.chunk_index,
+                    section.heading,
+                    section.content,
+                    section.char_count,
+                    section.search_text,
+                    json.dumps(section.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO sql_script_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM sql_script_sections WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE sql_script_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE sql_script_files
+            SET is_present = FALSE,
+                status = %s,
+                updated_at = NOW()
+            WHERE last_indexed_at < %s
+              AND is_present = TRUE
+            """,
+            (FileStatus.MISSING.value, indexed_at),
+        )
+
+class DatabaseIndexRepository:
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def find_file(self, relative_path: str) -> Mapping[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, size_bytes, last_modified, file_format, status
+            FROM database_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def save(
+        self,
+        result: DatabaseIndexResult,
+        *,
+        size_bytes: int,
+        last_modified: datetime | None,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO database_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, parser_version, parse_warnings,
+                file_summary, file_keywords, file_search_text, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s::jsonb,
+                %s, %s::jsonb, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                parser_version = EXCLUDED.parser_version,
+                parse_warnings = EXCLUDED.parse_warnings,
+                file_summary = EXCLUDED.file_summary,
+                file_keywords = EXCLUDED.file_keywords,
+                file_search_text = EXCLUDED.file_search_text,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                result.source_id,
+                result.relative_path,
+                result.filename,
+                result.file_format,
+                size_bytes,
+                last_modified,
+                result.parser_version,
+                json.dumps(result.parse_warnings),
+                result.file_summary,
+                json.dumps(result.file_keywords),
+                result.file_search_text,
+                "indexed",
+                None,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM database_tables WHERE source_id = %s",
+            (result.source_id,),
+        )
+
+        for table in result.tables:
+            self._connection.execute(
+                """
+                INSERT INTO database_tables (
+                    table_id, source_id, table_name,
+                    row_count, column_count, columns_json, preview_rows,
+                    summary, keywords, table_search_text, warnings
+                ) VALUES (
+                    %s, %s, %s,
+                    %s, %s, %s::jsonb, %s::jsonb,
+                    %s, %s::jsonb, %s, %s::jsonb
+                )
+                """,
+                (
+                    table.table_id,
+                    result.source_id,
+                    table.table_name,
+                    table.row_count,
+                    table.column_count,
+                    json.dumps([asdict(col) for col in table.columns]),
+                    json.dumps(table.preview_rows),
+                    table.summary,
+                    json.dumps(table.keywords),
+                    table.table_search_text,
+                    json.dumps(table.warnings),
+                ),
+            )
+
+    def save_error(
+        self,
+        *,
+        source_id: str,
+        relative_path: str,
+        filename: str,
+        file_format: str,
+        size_bytes: int,
+        last_modified: datetime | None,
+        error_message: str,
+        indexed_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO database_files (
+                source_id, relative_path, filename, file_format,
+                size_bytes, last_modified, status, error_message,
+                first_indexed_at, last_indexed_at, is_present
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            )
+            ON CONFLICT (relative_path) DO UPDATE SET
+                source_id = EXCLUDED.source_id,
+                filename = EXCLUDED.filename,
+                file_format = EXCLUDED.file_format,
+                size_bytes = EXCLUDED.size_bytes,
+                last_modified = EXCLUDED.last_modified,
+                status = EXCLUDED.status,
+                error_message = EXCLUDED.error_message,
+                last_indexed_at = EXCLUDED.last_indexed_at,
+                is_present = EXCLUDED.is_present,
+                updated_at = NOW()
+            """,
+            (
+                source_id,
+                relative_path,
+                filename,
+                file_format,
+                size_bytes,
+                last_modified,
+                "error",
+                error_message,
+                indexed_at,
+                indexed_at,
+                True,
+            ),
+        )
+
+        self._connection.execute(
+            "DELETE FROM database_tables WHERE source_id = %s",
+            (source_id,),
+        )
+
+    def mark_missing(self, prefix: str, indexed_at: datetime) -> None:
+        if prefix:
+            self._connection.execute(
+                """
+                UPDATE database_files
+                SET is_present = FALSE,
+                    status = %s,
+                    updated_at = NOW()
+                WHERE (
+                    relative_path = %s
+                    OR starts_with(relative_path, %s)
+                )
+                  AND last_indexed_at < %s
+                  AND is_present = TRUE
+                """,
+                (
+                    FileStatus.MISSING.value,
+                    prefix,
+                    f"{prefix}/",
+                    indexed_at,
+                ),
+            )
+            return
+
+        self._connection.execute(
+            """
+            UPDATE database_files
             SET is_present = FALSE,
                 status = %s,
                 updated_at = NOW()
