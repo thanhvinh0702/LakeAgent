@@ -82,14 +82,32 @@ class DocumentLLMEnricher:
 
     def _build_payload(self, result: DocumentIndexResult) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
-        for section in result.sections[: self._options.section_count_limit]:
+        sampled_sections = _sample_evenly(result.sections, self._options.section_count_limit)
+        for section in sampled_sections:
             sections.append(
                 {
+                    "section_type": section.section_type,
                     "chunk_index": section.chunk_index,
                     "heading": section.heading,
                     "page_start": section.page_start,
                     "page_end": section.page_end,
                     "content": section.content[: self._options.section_character_limit],
+                }
+            )
+
+        image_summaries: list[dict[str, Any]] = []
+        image_summary_sections = _sample_evenly(
+            [section for section in result.sections if section.section_type == "image_summary"],
+            6,
+        )
+        for section in image_summary_sections:
+            image_summaries.append(
+                {
+                    "image_index": section.image_index,
+                    "heading": section.heading,
+                    "page_start": section.page_start,
+                    "page_end": section.page_end,
+                    "summary": section.content[: self._options.section_character_limit],
                 }
             )
 
@@ -100,6 +118,7 @@ class DocumentLLMEnricher:
             "file_format": result.file_format,
             "parse_warnings": result.parse_warnings,
             "sections": sections,
+            "embedded_image_summaries": image_summaries,
         }
 
 
@@ -232,3 +251,19 @@ def _build_file_search_text(result: DocumentIndexResult) -> str | None:
         if section.heading:
             parts.append(section.heading)
     return "\n".join(part for part in parts if part).strip() or None
+
+
+def _sample_evenly[T](items: list[T], limit: int) -> list[T]:
+    if limit <= 0 or not items:
+        return []
+    if len(items) <= limit:
+        return items
+    if limit == 1:
+        return [items[0]]
+
+    max_index = len(items) - 1
+    sampled_indices = [
+        (position * max_index) // (limit - 1)
+        for position in range(limit)
+    ]
+    return [items[index] for index in sampled_indices]

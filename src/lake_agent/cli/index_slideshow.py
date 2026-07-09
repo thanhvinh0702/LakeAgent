@@ -6,23 +6,23 @@ import sys
 from typing import Callable
 
 from lake_agent.config import LocalSettings, PostgresSettings
-from lake_agent.indexing.document import (
-    DeterministicDocumentParser,
-    DocumentEmbeddedImageProcessingOptions,
-    DocumentEmbeddedImageProcessor,
-    DocumentIndexingProgress,
-    DocumentIndexingService,
-    DocumentLLMEnricher,
-    build_pgvector_store,
-)
 from lake_agent.indexing.image import (
     DoclingOCRExtractionOptions,
     DoclingOCRMarkdownExtractor,
     ImageEnrichmentOptions,
     ImageVLMEnricher,
 )
+from lake_agent.indexing.slideshow import (
+    DeterministicSlideshowParser,
+    SlideshowEmbeddedImageProcessingOptions,
+    SlideshowEmbeddedImageProcessor,
+    SlideshowIndexingProgress,
+    SlideshowIndexingService,
+    SlideshowLLMEnricher,
+    build_pgvector_store,
+)
 from lake_agent.persistence.database import PostgresDatabase
-from lake_agent.persistence.repositories import DocumentIndexRepository
+from lake_agent.persistence.repositories import SlideshowIndexRepository
 
 
 def _load_dotenv() -> None:
@@ -35,62 +35,18 @@ def _load_dotenv() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Parse, persist, and vector-index document files."
+        description="Parse, persist, and vector-index slideshow files."
     )
-    parser.add_argument(
-        "--prefix",
-        default="",
-        help="Optional subfolder inside DATALAKE_DIR",
-    )
-    parser.add_argument(
-        "--table-name",
-        default="document_index",
-        help="PGVectorStore table name",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=25,
-        help="Number of files to flush to the vector store at once",
-    )
-    parser.add_argument(
-        "--enrich-batch-size",
-        type=int,
-        default=10,
-        help="Number of files to send in each document enrichment batch",
-    )
-    parser.add_argument(
-        "--no-progress",
-        action="store_true",
-        help="Disable progress output",
-    )
-    parser.add_argument(
-        "--no-enrich",
-        action="store_true",
-        help="Skip LLM enrichment and store deterministic parse only",
-    )
-    parser.add_argument(
-        "--no-ocr",
-        action="store_true",
-        help="Skip OCR extraction for images embedded in documents",
-    )
-    parser.add_argument(
-        "--ocr-batch-size",
-        type=int,
-        default=3,
-        help="Number of extracted document images to send in each OCR batch",
-    )
-    parser.add_argument(
-        "--no-vlm",
-        action="store_true",
-        help="Skip VLM summaries for images embedded in documents",
-    )
-    parser.add_argument(
-        "--vlm-batch-size",
-        type=int,
-        default=3,
-        help="Number of extracted document images to send in each VLM batch",
-    )
+    parser.add_argument("--prefix", default="", help="Optional subfolder inside DATALAKE_DIR")
+    parser.add_argument("--table-name", default="slideshow_index", help="PGVectorStore table name")
+    parser.add_argument("--batch-size", type=int, default=25, help="Number of files to flush to the vector store at once")
+    parser.add_argument("--enrich-batch-size", type=int, default=10, help="Number of files to send in each slideshow enrichment batch")
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress output")
+    parser.add_argument("--no-enrich", action="store_true", help="Skip LLM enrichment and store deterministic parse only")
+    parser.add_argument("--no-ocr", action="store_true", help="Skip OCR extraction for images embedded in slideshows")
+    parser.add_argument("--ocr-batch-size", type=int, default=10, help="Number of extracted slideshow images to send in each OCR batch")
+    parser.add_argument("--no-vlm", action="store_true", help="Skip VLM summaries for images embedded in slideshows")
+    parser.add_argument("--vlm-batch-size", type=int, default=10, help="Number of extracted slideshow images to send in each VLM batch")
     return parser
 
 
@@ -112,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         database = PostgresDatabase(postgres_settings.dsn)
         with database.connect() as connection:
             database.initialize(connection)
-            repository = DocumentIndexRepository(connection)
-            enricher = None if args.no_enrich else DocumentLLMEnricher.from_env()
+            repository = SlideshowIndexRepository(connection)
+            enricher = None if args.no_enrich else SlideshowLLMEnricher.from_env()
             ocr_extractor = None
             if not args.no_ocr:
                 ocr_extractor = DoclingOCRMarkdownExtractor.from_default(
@@ -124,10 +80,10 @@ def main(argv: list[str] | None = None) -> int:
                 vlm_enricher = ImageVLMEnricher.from_env(ImageEnrichmentOptions())
             image_processor = None
             if ocr_extractor is not None or vlm_enricher is not None:
-                image_processor = DocumentEmbeddedImageProcessor(
+                image_processor = SlideshowEmbeddedImageProcessor(
                     ocr_extractor=ocr_extractor,
                     vlm_enricher=vlm_enricher,
-                    options=DocumentEmbeddedImageProcessingOptions(
+                    options=SlideshowEmbeddedImageProcessingOptions(
                         ocr_batch_size=args.ocr_batch_size,
                         vlm_batch_size=args.vlm_batch_size,
                     ),
@@ -137,9 +93,9 @@ def main(argv: list[str] | None = None) -> int:
                 postgres_settings=postgres_settings,
             )
             progress_callback = None if args.no_progress else _build_progress_reporter()
-            service = DocumentIndexingService(
+            service = SlideshowIndexingService(
                 local_settings.datalake_dir,
-                DeterministicDocumentParser(),
+                DeterministicSlideshowParser(),
                 repository,
                 image_processor=image_processor,
                 enricher=enricher,
@@ -152,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         if progress_callback is not None:
             _close_progress_reporter(progress_callback)
-        print(f"Document indexing failed: {exc}", file=sys.stderr)
+        print(f"Slideshow indexing failed: {exc}", file=sys.stderr)
         return 1
     if progress_callback is not None:
         _close_progress_reporter(progress_callback)
@@ -175,7 +131,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def _build_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
+def _build_progress_reporter() -> Callable[[SlideshowIndexingProgress], None]:
     try:
         from tqdm import tqdm
     except ImportError:
@@ -183,13 +139,9 @@ def _build_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
 
     progress_bar: dict[str, object] = {"bar": None}
 
-    def report(progress: DocumentIndexingProgress) -> None:
+    def report(progress: SlideshowIndexingProgress) -> None:
         if progress.event == "start":
-            progress_bar["bar"] = tqdm(
-                total=progress.total_count,
-                unit="file",
-                desc="Indexing document files",
-            )
+            progress_bar["bar"] = tqdm(total=progress.total_count, unit="file", desc="Indexing slideshow files")
             return
 
         bar = progress_bar.get("bar")
@@ -230,13 +182,10 @@ def _build_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
     return report
 
 
-def _plain_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
-    def report(progress: DocumentIndexingProgress) -> None:
+def _plain_progress_reporter() -> Callable[[SlideshowIndexingProgress], None]:
+    def report(progress: SlideshowIndexingProgress) -> None:
         if progress.event == "start":
-            print(
-                f"Indexing document files: 0/{progress.total_count}",
-                file=sys.stderr,
-            )
+            print(f"Indexing slideshow files: 0/{progress.total_count}", file=sys.stderr)
             return
 
         if progress.event in {"indexed", "unchanged", "error"}:
@@ -272,7 +221,7 @@ def _plain_progress_reporter() -> Callable[[DocumentIndexingProgress], None]:
 
 
 def _close_progress_reporter(
-    reporter: Callable[[DocumentIndexingProgress], None],
+    reporter: Callable[[SlideshowIndexingProgress], None],
 ) -> None:
     close = getattr(reporter, "_close", None)
     if callable(close):

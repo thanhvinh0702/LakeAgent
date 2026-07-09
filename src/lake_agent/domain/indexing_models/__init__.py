@@ -2,6 +2,7 @@
 
 from lake_agent.domain.indexing_models.document import (
     DocumentFormat,
+    DocumentEmbeddedImage,
     DocumentIndexResult,
     DocumentSection,
 )
@@ -15,6 +16,15 @@ from lake_agent.domain.indexing_models.image import (
 )
 from lake_agent.domain.indexing_models.image_enrichment import (
     EnrichedImageResult,
+)
+from lake_agent.domain.indexing_models.slideshow import (
+    SlideshowEmbeddedImage,
+    SlideshowFormat,
+    SlideshowIndexResult,
+    SlideshowSection,
+)
+from lake_agent.domain.indexing_models.slideshow_enrichment import (
+    EnrichedSlideshowResult,
 )
 from lake_agent.domain.indexing_models.tabular import (
     ColumnProfile,
@@ -69,12 +79,14 @@ __all__ = [
     "DbColumnProfile",
     "DbTableProfile",
     "DocumentFormat",
+    "DocumentEmbeddedImage",
     "DocumentIndexResult",
     "DocumentSection",
     "EnrichedDatabaseResult",
     "EnrichedDatabaseTableProfile",
     "EnrichedDocumentResult",
     "EnrichedImageResult",
+    "EnrichedSlideshowResult",
     "EnrichedSqlScriptResult",
     "EnrichedTableProfile",
     "EnrichedTabularResult",
@@ -84,6 +96,10 @@ __all__ = [
     "ImageIndexResult",
     "ImageSection",
     "ScalarType",
+    "SlideshowEmbeddedImage",
+    "SlideshowFormat",
+    "SlideshowIndexResult",
+    "SlideshowSection",
     "SqlScriptFormat",
     "SqlScriptIndexResult",
     "SqlScriptSection",

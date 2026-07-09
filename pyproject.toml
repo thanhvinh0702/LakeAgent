@@ -30,6 +30,7 @@ lake-index-web = "lake_agent.cli.index_web:main"
 lake-index-sql-script = "lake_agent.cli.index_sql_script:main"
 lake-index-database = "lake_agent.cli.index_database:main"
 lake-qa = "lake_agent.cli.run_qa:main"
+lake-index-slideshow = "lake_agent.cli.index_slideshow:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

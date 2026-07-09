@@ -1,33 +1,34 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
-from lake_agent.domain.indexing_models import DocumentIndexResult
-from lake_agent.indexing.document.deterministic import DeterministicDocumentParser
-from lake_agent.indexing.document.embedded_images import DocumentEmbeddedImageProcessor
-from lake_agent.indexing.document.enrichment import (
-    DocumentLLMEnricher,
+from lake_agent.domain.indexing_models import SlideshowIndexResult
+from lake_agent.indexing.slideshow.deterministic import DeterministicSlideshowParser
+from lake_agent.indexing.slideshow.embedded_images import SlideshowEmbeddedImageProcessor
+from lake_agent.indexing.slideshow.enrichment import (
+    SlideshowLLMEnricher,
     _build_file_search_text,
 )
-from lake_agent.indexing.document.vector_store import add_document_results
-from lake_agent.persistence.repositories import DocumentIndexRepository
+from lake_agent.indexing.slideshow.vector_store import add_slideshow_results
+from lake_agent.persistence.repositories import SlideshowIndexRepository
 
-_SUPPORTED_SUFFIXES = {".pdf", ".docx", ".doc", ".rtf"}
+_SUPPORTED_SUFFIXES = {".ppt", ".pptx"}
 
 
 @dataclass(frozen=True, slots=True)
-class IndexedDocumentFile:
+class IndexedSlideshowFile:
     relative_path: str
     size_bytes: int
     last_modified: datetime
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentIndexingProgress:
+class SlideshowIndexingProgress:
     event: str
     relative_path: str | None
     processed_count: int
@@ -40,24 +41,24 @@ class DocumentIndexingProgress:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentIndexingError:
+class SlideshowIndexingError:
     relative_path: str
     message: str
 
 
-class DocumentIndexingService:
+class SlideshowIndexingService:
     def __init__(
         self,
         root_dir: str | Path,
-        parser: DeterministicDocumentParser,
-        repository: DocumentIndexRepository,
+        parser: DeterministicSlideshowParser,
+        repository: SlideshowIndexRepository,
         *,
-        image_processor: DocumentEmbeddedImageProcessor | None = None,
-        enricher: DocumentLLMEnricher | None = None,
+        image_processor: SlideshowEmbeddedImageProcessor | None = None,
+        enricher: SlideshowLLMEnricher | None = None,
         vector_store: Any | None = None,
         enrich_batch_size: int = 10,
         vector_batch_size: int = 25,
-        progress_callback: Callable[[DocumentIndexingProgress], None] | None = None,
+        progress_callback: Callable[[SlideshowIndexingProgress], None] | None = None,
     ) -> None:
         if enrich_batch_size <= 0:
             raise ValueError("enrich_batch_size must be positive")
@@ -75,7 +76,7 @@ class DocumentIndexingService:
         if self._image_processor is not None:
             self._image_processor._log_callback = self._emit_embedded_image_log
 
-    def run(self, prefix: str = "") -> dict[str, int | str | list[DocumentIndexingError]]:
+    def run(self, prefix: str = "") -> dict[str, int | str | list[SlideshowIndexingError]]:
         normalized_prefix = _normalize_prefix(prefix)
         indexed_at = datetime.now(timezone.utc)
         discovered_count = 0
@@ -83,9 +84,9 @@ class DocumentIndexingService:
         unchanged_count = 0
         error_count = 0
         vector_document_count = 0
-        errors: list[DocumentIndexingError] = []
-        enrich_pending: list[tuple[IndexedDocumentFile, DocumentIndexResult]] = []
-        vector_batch: list[DocumentIndexResult] = []
+        errors: list[SlideshowIndexingError] = []
+        enrich_pending: list[tuple[IndexedSlideshowFile, SlideshowIndexResult]] = []
+        vector_batch: list[SlideshowIndexResult] = []
         files = self._scan_files(normalized_prefix)
         total_count = len(files)
         processed_count = 0
@@ -175,7 +176,7 @@ class DocumentIndexingService:
                     indexed_at=indexed_at,
                 )
                 errors.append(
-                    DocumentIndexingError(
+                    SlideshowIndexingError(
                         relative_path=indexed_file.relative_path,
                         message=error_message,
                     )
@@ -249,9 +250,9 @@ class DocumentIndexingService:
 
     def _flush_enrich_batch(
         self,
-        pending: list[tuple[IndexedDocumentFile, DocumentIndexResult]],
+        pending: list[tuple[IndexedSlideshowFile, SlideshowIndexResult]],
         *,
-        vector_batch: list[DocumentIndexResult],
+        vector_batch: list[SlideshowIndexResult],
         indexed_at: datetime,
         total_count: int,
         indexed_count: int,
@@ -268,30 +269,22 @@ class DocumentIndexingService:
         try:
             for indexed_file, result in zip(indexed_files, results, strict=True):
                 embedded_image_count = len(result.embedded_images)
-                if embedded_image_count > 0:
-                    self._emit_progress(
-                        event="info",
-                        relative_path=indexed_file.relative_path,
-                        processed_count=processed_count,
-                        total_count=total_count,
-                        indexed_count=indexed_count,
-                        unchanged_count=unchanged_count,
-                        error_count=error_count,
-                        vector_document_count=vector_document_count,
-                        message=f"Detected {embedded_image_count} embedded image(s) in document.",
-                    )
-                else:
-                    self._emit_progress(
-                        event="info",
-                        relative_path=indexed_file.relative_path,
-                        processed_count=processed_count,
-                        total_count=total_count,
-                        indexed_count=indexed_count,
-                        unchanged_count=unchanged_count,
-                        error_count=error_count,
-                        vector_document_count=vector_document_count,
-                        message="No embedded images detected in document.",
-                    )
+                self._emit_progress(
+                    event="info",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=(
+                        f"Detected {embedded_image_count} embedded image(s) in slideshow."
+                        if embedded_image_count > 0
+                        else "No embedded images detected in slideshow."
+                    ),
+                )
+
             if self._image_processor is not None:
                 results = self._image_processor.enrich_batch(results)
             if self._enricher is not None:
@@ -331,7 +324,7 @@ class DocumentIndexingService:
 
     def _handle_pending_error_batch(
         self,
-        pending: list[tuple[IndexedDocumentFile, DocumentIndexResult]],
+        pending: list[tuple[IndexedSlideshowFile, SlideshowIndexResult]],
         *,
         error_message: str,
         indexed_at: datetime,
@@ -341,7 +334,7 @@ class DocumentIndexingService:
         error_count: int,
         vector_document_count: int,
         processed_count: int,
-        errors: list[DocumentIndexingError],
+        errors: list[SlideshowIndexingError],
     ) -> tuple[int, int]:
         for indexed_file, result in pending:
             file_path = self._root_dir / indexed_file.relative_path
@@ -356,7 +349,7 @@ class DocumentIndexingService:
                 indexed_at=indexed_at,
             )
             errors.append(
-                DocumentIndexingError(
+                SlideshowIndexingError(
                     relative_path=indexed_file.relative_path,
                     message=error_message,
                 )
@@ -376,18 +369,18 @@ class DocumentIndexingService:
             )
         return error_count, processed_count
 
-    def _scan_files(self, prefix: str) -> list[IndexedDocumentFile]:
+    def _scan_files(self, prefix: str) -> list[IndexedSlideshowFile]:
         base_dir = self._root_dir if not prefix else (self._root_dir / prefix).resolve()
         if not base_dir.exists():
             return []
 
-        files: list[IndexedDocumentFile] = []
+        files: list[IndexedSlideshowFile] = []
         for path in sorted(base_dir.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in _SUPPORTED_SUFFIXES:
                 continue
             stat = path.stat()
             files.append(
-                IndexedDocumentFile(
+                IndexedSlideshowFile(
                     relative_path=path.relative_to(self._root_dir).as_posix(),
                     size_bytes=stat.st_size,
                     last_modified=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
@@ -395,13 +388,13 @@ class DocumentIndexingService:
             )
         return files
 
-    def _flush_vector_batch(self, batch: list[DocumentIndexResult]) -> int:
+    def _flush_vector_batch(self, batch: list[SlideshowIndexResult]) -> int:
         if self._vector_store is None or not batch:
             return 0
-        document_ids = add_document_results(self._vector_store, batch)
+        document_ids = add_slideshow_results(self._vector_store, batch)
         return len(document_ids)
 
-    def _cleanup_result_artifacts(self, result: DocumentIndexResult) -> None:
+    def _cleanup_result_artifacts(self, result: SlideshowIndexResult) -> None:
         if result.artifact_dir:
             shutil.rmtree(result.artifact_dir, ignore_errors=True)
             result.artifact_dir = None
@@ -436,7 +429,7 @@ class DocumentIndexingService:
         if self._progress_callback is None:
             return
         self._progress_callback(
-            DocumentIndexingProgress(
+            SlideshowIndexingProgress(
                 event=event,
                 relative_path=relative_path,
                 processed_count=processed_count,
@@ -450,28 +443,23 @@ class DocumentIndexingService:
         )
 
 
-def _is_unchanged(previous: Any, current: IndexedDocumentFile) -> bool:
-    if not previous:
-        return False
-    if previous.get("status") != "indexed":
-        return False
-    if previous.get("size_bytes") != current.size_bytes:
-        return False
-    return previous.get("last_modified") == current.last_modified
-
-
 def _normalize_prefix(prefix: str) -> str:
-    cleaned = prefix.strip().replace("\\", "/").strip("/")
-    if not cleaned:
+    normalized = prefix.strip().replace("\\", "/")
+    if normalized in {"", "."}:
         return ""
-    normalized = PurePosixPath(cleaned).as_posix()
-    if normalized in {".", ""}:
-        return ""
-    return normalized
+    return PurePosixPath(normalized).as_posix().rstrip("/")
 
 
 def _stable_source_id(relative_path: str) -> str:
-    import hashlib
-
     digest = hashlib.sha1(relative_path.encode("utf-8")).hexdigest()[:16]
     return f"source_{digest}"
+
+
+def _is_unchanged(previous: dict[str, Any] | None, indexed_file: IndexedSlideshowFile) -> bool:
+    if not previous:
+        return False
+    return (
+        previous.get("status") == "indexed"
+        and previous.get("size_bytes") == indexed_file.size_bytes
+        and previous.get("last_modified") == indexed_file.last_modified
+    )

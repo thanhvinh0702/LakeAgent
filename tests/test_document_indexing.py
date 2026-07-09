@@ -121,6 +121,27 @@ class FakeDocumentEnricher:
         return [self.enrich(result) for result in results]
 
 
+class FakeDocumentImageProcessor:
+    def enrich_batch(self, results):
+        for result in results:
+            result.sections.append(
+                type(result.sections[0])(
+                    section_id=f"{result.source_id}:image-summary",
+                    section_type="image_summary",
+                    chunk_index=len(result.sections) + 1,
+                    heading="Embedded figure",
+                    content="A summary of the embedded figure.",
+                    page_start=1,
+                    page_end=1,
+                    char_count=33,
+                    search_text="Embedded figure\nA summary of the embedded figure.",
+                    image_id=f"{result.source_id}:image-1",
+                    image_index=1,
+                )
+            )
+        return results
+
+
 class FakeProv:
     def __init__(self, page_no: int) -> None:
         self.page_no = page_no
@@ -179,6 +200,7 @@ class DeterministicDocumentParserTest(unittest.TestCase):
         self.assertEqual("pdf", result.file_format)
         self.assertEqual(2, len(result.sections))
         self.assertEqual("Intro", result.sections[0].heading)
+        self.assertEqual("document_chunk", result.sections[0].section_type)
         self.assertEqual("Intro > Findings", result.sections[1].heading)
         self.assertEqual("Intro\nOverview paragraph.", result.sections[0].search_text)
         self.assertEqual(1, result.sections[0].page_start)
@@ -243,6 +265,7 @@ class DocumentIndexingServiceTest(unittest.TestCase):
                     prepare_source=_fake_prepare_source,
                 ),
                 repository,
+                image_processor=FakeDocumentImageProcessor(),
                 enricher=enricher,
                 vector_store=vector_store,
                 enrich_batch_size=2,
@@ -262,6 +285,7 @@ class DocumentIndexingServiceTest(unittest.TestCase):
         self.assertEqual(2, second["unchanged_count"])
         self.assertEqual("Summary for a.pdf", repository.saved_results[0].file_summary)
         self.assertEqual("Intro\nOverview paragraph.", repository.saved_results[0].sections[0].search_text)
+        self.assertEqual("image_summary", repository.saved_results[0].sections[-1].section_type)
 
     def test_build_document_documents_emits_file_and_section_docs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -280,6 +304,7 @@ class DocumentIndexingServiceTest(unittest.TestCase):
 
         self.assertEqual("file", documents[0].metadata["record_type"])
         self.assertEqual("section", documents[1].metadata["record_type"])
+        self.assertEqual("document_chunk", documents[1].metadata["section_type"])
         self.assertEqual("Intro", documents[1].metadata["heading"])
         self.assertEqual(1, documents[1].metadata["page_start"])
 

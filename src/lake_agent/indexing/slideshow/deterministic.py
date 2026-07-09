@@ -11,20 +11,23 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from lake_agent.domain.indexing_models import (
-    DocumentEmbeddedImage,
-    DocumentIndexResult,
-    DocumentSection,
+    SlideshowEmbeddedImage,
+    SlideshowIndexResult,
+    SlideshowSection,
 )
 
-_SUPPORTED_DIRECT_FORMATS = {"pdf", "docx"}
-_SUPPORTED_CONVERTIBLE_FORMATS = {"doc", "rtf"}
+_SUPPORTED_DIRECT_FORMATS = {"pptx"}
+_SUPPORTED_CONVERTIBLE_FORMATS = {"ppt"}
 _SUPPORTED_FORMATS = _SUPPORTED_DIRECT_FORMATS | _SUPPORTED_CONVERTIBLE_FORMATS
-_DOCUMENT_CONVERTER: Any | None = None
+_SLIDESHOW_CONVERTER: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentParseOptions:
-    soffice_binary: str = "soffice"
+class SlideshowParseOptions:
+    libreoffice_binary: str = "soffice"
+    min_section_chars: int = 140
+    target_section_chars: int = 500
+    max_section_chars: int = 1200
 
 
 @dataclass(slots=True)
@@ -38,17 +41,26 @@ class _PreparedSource:
             self.temp_dir.cleanup()
 
 
-class DeterministicDocumentParser:
+@dataclass(frozen=True, slots=True)
+class _RawSlideChunk:
+    heading: str | None
+    content: str
+    slide_start: int | None
+    slide_end: int | None
+    search_text: str
+
+
+class DeterministicSlideshowParser:
     def __init__(
         self,
-        options: DocumentParseOptions | None = None,
+        options: SlideshowParseOptions | None = None,
         *,
         load_document: Callable[[Path], Any] | None = None,
         build_chunker: Callable[[], Any] | None = None,
         prepare_source: Callable[[Path], _PreparedSource] | None = None,
-        extract_embedded_images: Callable[[Any, str], tuple[list[DocumentEmbeddedImage], str | None, list[str]]] | None = None,
+        extract_embedded_images: Callable[[Any, str], tuple[list[SlideshowEmbeddedImage], str | None, list[str]]] | None = None,
     ) -> None:
-        self._options = options or DocumentParseOptions()
+        self._options = options or SlideshowParseOptions()
         self._load_document = load_document or _default_load_document
         self._build_chunker = build_chunker or _default_build_chunker
         self._prepare_source = prepare_source or self._default_prepare_source
@@ -60,14 +72,14 @@ class DeterministicDocumentParser:
         *,
         relative_path: str | None = None,
         source_id: str | None = None,
-    ) -> DocumentIndexResult:
+    ) -> SlideshowIndexResult:
         path = Path(file_path).expanduser().resolve()
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(path)
 
         extension = path.suffix.lower().removeprefix(".")
         if extension not in _SUPPORTED_FORMATS:
-            raise ValueError(f"Unsupported deterministic document format: {extension}")
+            raise ValueError(f"Unsupported deterministic slideshow format: {extension}")
 
         normalized_relative_path = relative_path or path.name
         normalized_relative_path = PurePosixPath(
@@ -97,9 +109,9 @@ class DeterministicDocumentParser:
         warnings = list(prepared.warnings)
         warnings.extend(image_warnings)
         if not sections:
-            warnings.append("The file did not contain any readable document chunks.")
+            warnings.append("The slideshow did not contain any readable slide chunks.")
 
-        result = DocumentIndexResult(
+        result = SlideshowIndexResult(
             source_id=normalized_source_id,
             relative_path=normalized_relative_path,
             filename=path.name,
@@ -118,34 +130,89 @@ class DeterministicDocumentParser:
         *,
         chunker: Any,
         source_id: str,
-    ) -> list[DocumentSection]:
-        sections: list[DocumentSection] = []
-        for chunk_index, chunk in enumerate(chunks, start=1):
-            content = getattr(chunk, "text", "") or ""
-            content = content.strip()
+    ) -> list[SlideshowSection]:
+        raw_chunks: list[_RawSlideChunk] = []
+        for chunk in chunks:
+            content = (getattr(chunk, "text", "") or "").strip()
             if not content:
                 continue
             headings = list(getattr(getattr(chunk, "meta", None), "headings", []) or [])
             heading = " > ".join(part.strip() for part in headings if part and part.strip()) or None
-            page_start, page_end = _extract_page_range(chunk)
-            search_text = chunker.contextualize(chunk=chunk).strip()
-            sections.append(
-                DocumentSection(
-                    section_id=_stable_id(
-                        f"{source_id}:{chunk_index}:{heading or ''}:{content[:80]}",
-                        prefix="section",
-                    ),
-                    section_type="document_chunk",
-                    chunk_index=chunk_index,
+            slide_start, slide_end = _extract_slide_range(chunk)
+            search_text = chunker.contextualize(chunk=chunk).strip() or content
+            raw_chunks.append(
+                _RawSlideChunk(
                     heading=heading,
                     content=content,
-                    page_start=page_start,
-                    page_end=page_end,
-                    char_count=len(content),
-                    search_text=search_text or content,
+                    slide_start=slide_start,
+                    slide_end=slide_end,
+                    search_text=search_text,
+                )
+            )
+
+        merged_chunks = self._build_slide_sections(raw_chunks)
+        sections: list[SlideshowSection] = []
+        for chunk_index, chunk in enumerate(merged_chunks, start=1):
+            sections.append(
+                SlideshowSection(
+                    section_id=_stable_id(
+                        f"{source_id}:{chunk_index}:{chunk.heading or ''}:{chunk.content[:80]}",
+                        prefix="slide_section",
+                    ),
+                    section_type="slide_chunk",
+                    chunk_index=chunk_index,
+                    heading=chunk.heading,
+                    content=chunk.content,
+                    slide_start=chunk.slide_start,
+                    slide_end=chunk.slide_end,
+                    char_count=len(chunk.content),
+                    search_text=chunk.search_text,
                 )
             )
         return sections
+
+    def _build_slide_sections(self, chunks: list[_RawSlideChunk]) -> list[_RawSlideChunk]:
+        if not chunks:
+            return []
+
+        sections: list[_RawSlideChunk] = []
+        for slide_chunks in _group_chunks_by_slide(chunks):
+            sections.extend(self._split_within_slide(slide_chunks))
+        return sections
+
+    def _split_within_slide(self, slide_chunks: list[_RawSlideChunk]) -> list[_RawSlideChunk]:
+        if not slide_chunks:
+            return []
+
+        sections: list[_RawSlideChunk] = []
+        current = slide_chunks[0]
+        for next_chunk in slide_chunks[1:]:
+            if self._should_merge_within_slide(current, next_chunk):
+                current = _merge_raw_chunks(current, next_chunk)
+                continue
+            sections.append(current)
+            current = next_chunk
+        sections.append(current)
+        return sections
+
+    def _should_merge_within_slide(
+        self,
+        current: _RawSlideChunk,
+        next_chunk: _RawSlideChunk,
+    ) -> bool:
+        if len(current.content) < self._options.min_section_chars:
+            return len(current.content) + len(next_chunk.content) <= self._options.max_section_chars
+
+        if len(current.content) >= self._options.target_section_chars:
+            return False
+
+        if len(current.content) + len(next_chunk.content) > self._options.max_section_chars:
+            return False
+
+        if not _headings_compatible(current.heading, next_chunk.heading):
+            return False
+
+        return True
 
     def _default_prepare_source(self, path: Path) -> _PreparedSource:
         extension = path.suffix.lower().removeprefix(".")
@@ -153,24 +220,32 @@ class DeterministicDocumentParser:
             return _PreparedSource(path=path, warnings=[])
 
         if extension not in _SUPPORTED_CONVERTIBLE_FORMATS:
-            raise ValueError(f"Unsupported deterministic document format: {extension}")
+            raise ValueError(f"Unsupported deterministic slideshow format: {extension}")
 
-        soffice_binary = _resolve_office_binary(self._options.soffice_binary)
-        if not soffice_binary:
+        libreoffice_binary = _resolve_office_binary(self._options.libreoffice_binary)
+        if not libreoffice_binary:
             raise RuntimeError(
-                f"Legacy document format '.{extension}' requires LibreOffice for conversion, "
+                f"Legacy slideshow format '.{extension}' requires LibreOffice conversion, "
                 f"but none of the candidate binaries were found. "
-                f"requested={self._options.soffice_binary!r}, fallback=('soffice', 'libreoffice')."
+                f"requested={self._options.libreoffice_binary!r}, fallback=('soffice', 'libreoffice')."
+            )
+        if _is_snap_libreoffice_wrapper(libreoffice_binary):
+            raise RuntimeError(
+                "Legacy .ppt conversion requires a native LibreOffice/soffice binary. "
+                "This machine currently resolves LibreOffice to the snap/App Center wrapper "
+                f"at {libreoffice_binary}, which reports conversion success without creating "
+                "a usable .pptx output on this system. Use .pptx files directly or install "
+                "a native LibreOffice package that provides 'soffice'."
             )
 
-        temp_dir = tempfile.TemporaryDirectory(prefix="lake_agent_docling_")
+        temp_dir = tempfile.TemporaryDirectory(prefix="lake_agent_slideshow_")
         temp_path = Path(temp_dir.name)
         subprocess.run(
             [
-                soffice_binary,
+                libreoffice_binary,
                 "--headless",
                 "--convert-to",
-                "docx",
+                "pptx",
                 "--outdir",
                 str(temp_path),
                 str(path),
@@ -182,58 +257,51 @@ class DeterministicDocumentParser:
         converted_path = _resolve_converted_output(
             output_dir=temp_path,
             original_path=path,
-            expected_suffix=".docx",
+            expected_suffix=".pptx",
         )
         if converted_path is None:
             snap_hint = ""
-            if "/snap/bin/" in soffice_binary:
+            if "/snap/bin/" in libreoffice_binary:
                 snap_hint = (
                     " The current LibreOffice binary comes from snap and reported a converted file "
-                    "path without actually creating the .docx on this machine. Prefer a native "
+                    "path without actually creating the .pptx on this machine. Prefer a native "
                     "'soffice' binary if available."
                 )
             raise RuntimeError(
-                f"LibreOffice conversion did not produce a usable .docx output for {path.name}."
+                f"LibreOffice conversion did not produce a usable .pptx output for {path.name}."
                 f"{snap_hint}"
             )
         return _PreparedSource(
             path=converted_path,
             warnings=[
-                f"Converted legacy .{extension} file to .docx before Docling parsing."
+                f"Converted legacy .{extension} file to .pptx before Docling parsing."
             ],
             temp_dir=temp_dir,
         )
 
 
 def _default_load_document(path: Path) -> Any:
-    converter = _get_default_document_converter()
+    converter = _get_default_slideshow_converter()
     return converter.convert(source=str(path)).document
 
 
-def _get_default_document_converter() -> Any:
-    global _DOCUMENT_CONVERTER
-    if _DOCUMENT_CONVERTER is not None:
-        return _DOCUMENT_CONVERTER
+def _get_default_slideshow_converter() -> Any:
+    global _SLIDESHOW_CONVERTER
+    if _SLIDESHOW_CONVERTER is not None:
+        return _SLIDESHOW_CONVERTER
 
     from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.pipeline_options import ConvertPipelineOptions, PdfPipelineOptions
-    from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
+    from docling.datamodel.pipeline_options import ConvertPipelineOptions
+    from docling.document_converter import DocumentConverter, PowerpointFormatOption
 
-    pdf_pipeline_options = PdfPipelineOptions()
-    pdf_pipeline_options.images_scale = 2.0
-    pdf_pipeline_options.generate_page_images = True
-    pdf_pipeline_options.generate_picture_images = True
-    pdf_pipeline_options.generate_table_images = True
-
-    _DOCUMENT_CONVERTER = DocumentConverter(
+    _SLIDESHOW_CONVERTER = DocumentConverter(
         format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_pipeline_options),
-            InputFormat.DOCX: WordFormatOption(
+            InputFormat.PPTX: PowerpointFormatOption(
                 pipeline_options=ConvertPipelineOptions()
             ),
         }
     )
-    return _DOCUMENT_CONVERTER
+    return _SLIDESHOW_CONVERTER
 
 
 def _default_build_chunker() -> Any:
@@ -242,65 +310,65 @@ def _default_build_chunker() -> Any:
     return HierarchicalChunker()
 
 
-def _extract_page_range(chunk: Any) -> tuple[int | None, int | None]:
+def _extract_slide_range(chunk: Any) -> tuple[int | None, int | None]:
     direct_prov = getattr(chunk, "prov", None)
     if direct_prov:
-        page_numbers = [
+        slide_numbers = [
             prov.page_no
             for prov in direct_prov
             if isinstance(getattr(prov, "page_no", None), int)
         ]
-        if page_numbers:
-            return min(page_numbers), max(page_numbers)
+        if slide_numbers:
+            return min(slide_numbers), max(slide_numbers)
 
     meta = getattr(chunk, "meta", None)
     if meta is None:
         return None, None
 
-    page_numbers: list[int] = []
+    slide_numbers: list[int] = []
     for doc_item in getattr(meta, "doc_items", []) or []:
         for prov in getattr(doc_item, "prov", []) or []:
-            page_no = getattr(prov, "page_no", None)
-            if isinstance(page_no, int):
-                page_numbers.append(page_no)
-    if not page_numbers:
+            slide_no = getattr(prov, "page_no", None)
+            if isinstance(slide_no, int):
+                slide_numbers.append(slide_no)
+    if not slide_numbers:
         return None, None
-    return min(page_numbers), max(page_numbers)
+    return min(slide_numbers), max(slide_numbers)
 
 
-def _build_file_search_text(result: DocumentIndexResult) -> str | None:
+def _build_file_search_text(result: SlideshowIndexResult) -> str | None:
     parts = [result.filename, result.relative_path]
     for section in result.sections[:3]:
         if section.heading:
             parts.append(section.heading)
-        if section.page_start is not None:
-            if section.page_end is not None and section.page_end != section.page_start:
-                parts.append(f"pages {section.page_start}-{section.page_end}")
+        if section.slide_start is not None:
+            if section.slide_end is not None and section.slide_end != section.slide_start:
+                parts.append(f"slides {section.slide_start}-{section.slide_end}")
             else:
-                parts.append(f"page {section.page_start}")
+                parts.append(f"slide {section.slide_start}")
     return "\n".join(part for part in parts if part).strip() or None
 
 
 def _extract_embedded_images(
     dl_doc: Any,
     source_id: str,
-) -> tuple[list[DocumentEmbeddedImage], str | None, list[str]]:
+) -> tuple[list[SlideshowEmbeddedImage], str | None, list[str]]:
     pictures = list(getattr(dl_doc, "pictures", []) or [])
     if not pictures:
         return [], None, []
 
-    temp_dir = tempfile.mkdtemp(prefix="lake_agent_doc_images_")
-    extracted: list[DocumentEmbeddedImage] = []
+    temp_dir = tempfile.mkdtemp(prefix="lake_agent_slideshow_images_")
+    extracted: list[SlideshowEmbeddedImage] = []
     warnings: list[str] = []
     try:
         for image_index, picture in enumerate(pictures, start=1):
             try:
                 pil_image = picture.get_image(dl_doc)
             except Exception as exc:
-                warnings.append(f"Unable to extract document image {image_index}: {exc}")
+                warnings.append(f"Unable to extract slideshow image {image_index}: {exc}")
                 continue
             if pil_image is None:
-                warnings.append(f"Document image {image_index} did not expose a readable bitmap.")
+                warnings.append(f"Slideshow image {image_index} did not expose a readable bitmap.")
                 continue
 
             image_filename = f"{source_id}_image_{image_index:03d}.png"
@@ -309,7 +377,7 @@ def _extract_embedded_images(
                 pil_image.save(output, format="PNG")
                 image_path.write_bytes(output.getvalue())
 
-            page_start, page_end = _extract_page_range(picture)
+            slide_start, slide_end = _extract_slide_range(picture)
             caption = None
             caption_text = getattr(picture, "caption_text", None)
             if callable(caption_text):
@@ -317,11 +385,12 @@ def _extract_embedded_images(
                     caption = caption_text(dl_doc).strip() or None
                 except Exception:
                     caption = None
+
             extracted.append(
-                DocumentEmbeddedImage(
+                SlideshowEmbeddedImage(
                     image_id=_stable_id(
                         f"{source_id}:image:{image_index}:{image_filename}",
-                        prefix="docimg",
+                        prefix="slideimg",
                     ),
                     image_index=image_index,
                     path=os.fspath(image_path),
@@ -329,8 +398,8 @@ def _extract_embedded_images(
                     width=pil_image.width,
                     height=pil_image.height,
                     color_mode=pil_image.mode,
-                    page_start=page_start,
-                    page_end=page_end,
+                    slide_start=slide_start,
+                    slide_end=slide_end,
                     caption=caption,
                 )
             )
@@ -396,3 +465,66 @@ def _resolve_office_binary(requested_binary: str) -> str | None:
         if resolved:
             return resolved
     return None
+
+
+def _is_snap_libreoffice_wrapper(binary_path: str) -> bool:
+    normalized = binary_path.replace("\\", "/")
+    return normalized == "/snap/bin/libreoffice"
+
+
+def _headings_compatible(left: str | None, right: str | None) -> bool:
+    if left == right:
+        return True
+    if not left or not right:
+        return True
+    return left.startswith(right) or right.startswith(left)
+
+
+def _join_content(left: str, right: str) -> str:
+    left = left.strip()
+    right = right.strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    return f"{left}\n{right}"
+
+
+def _min_defined(left: int | None, right: int | None) -> int | None:
+    values = [value for value in (left, right) if value is not None]
+    return min(values) if values else None
+
+
+def _max_defined(left: int | None, right: int | None) -> int | None:
+    values = [value for value in (left, right) if value is not None]
+    return max(values) if values else None
+
+
+def _group_chunks_by_slide(chunks: list[_RawSlideChunk]) -> list[list[_RawSlideChunk]]:
+    grouped: list[list[_RawSlideChunk]] = []
+    current_group: list[_RawSlideChunk] = []
+    current_key: tuple[int | None, int | None] | None = None
+
+    for chunk in chunks:
+        key = (chunk.slide_start, chunk.slide_end)
+        if not current_group or key == current_key:
+            current_group.append(chunk)
+            current_key = key
+            continue
+        grouped.append(current_group)
+        current_group = [chunk]
+        current_key = key
+
+    if current_group:
+        grouped.append(current_group)
+    return grouped
+
+
+def _merge_raw_chunks(left: _RawSlideChunk, right: _RawSlideChunk) -> _RawSlideChunk:
+    return _RawSlideChunk(
+        heading=left.heading or right.heading,
+        content=_join_content(left.content, right.content),
+        slide_start=_min_defined(left.slide_start, right.slide_start),
+        slide_end=_max_defined(left.slide_end, right.slide_end),
+        search_text=_join_content(left.search_text, right.search_text),
+    )

@@ -4,6 +4,10 @@ from lake_agent.indexing.document.deterministic import (
     DeterministicDocumentParser,
     DocumentParseOptions,
 )
+from lake_agent.indexing.document.embedded_images import (
+    DocumentEmbeddedImageProcessingOptions,
+    DocumentEmbeddedImageProcessor,
+)
 from lake_agent.indexing.document.enrichment import (
     DocumentEnrichmentOptions,
     DocumentLLMEnricher,
@@ -24,6 +28,8 @@ from lake_agent.indexing.document.vector_store import (
 
 __all__ = [
     "DeterministicDocumentParser",
+    "DocumentEmbeddedImageProcessingOptions",
+    "DocumentEmbeddedImageProcessor",
     "DocumentEnrichmentOptions",
     "DocumentIndexingError",
     "DocumentIndexingProgress",
