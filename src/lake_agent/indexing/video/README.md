@@ -14,14 +14,40 @@ ASR_MODEL_NAME=qwen/qwen3-asr-flash-2026-02-10
 ASR_FALLBACK_MODEL_NAME=mistralai/voxtral-mini-transcribe
 ```
 
-Optional VLM frame captioning uses the existing OpenAI-compatible chat settings.
-`VIDEO_VL_MODEL_NAME` falls back to `VL_MODEL_NAME`, then `OPENAI_MODEL_NAME`.
+Optional VLM frame captioning uses OpenAI-compatible chat settings through
+LangChain. It can go through 9Router via `OPENAI_*`, or directly through a
+provider by setting `VIDEO_VL_*`.
+
+`VIDEO_VL_API_KEY` falls back to `OPENAI_API_KEY`, then `API_KEY`.
+`VIDEO_VL_BASE_URL` falls back to `VL_BASE_URL`, then `OPENAI_BASE_URL`, then
+`BASE_URL`.
+`VIDEO_VL_MODEL_NAME` falls back to `VL_MODEL_NAME`, then `OPENAI_MODEL_NAME`,
+then `MODEL_NAME`.
+
 Frames are sampled evenly from the video duration, up to `VIDEO_MAX_FRAMES`.
 
 ```env
+VIDEO_VL_API_KEY=
+VIDEO_VL_BASE_URL=
 VIDEO_MAX_FRAMES=8
 VIDEO_FRAME_LONG_EDGE=768
 VIDEO_VL_MODEL_NAME=
+```
+
+For the current 9Router setup, a typical VLM config is:
+
+```env
+OPENAI_API_KEY=<9router-key-or-local-placeholder>
+OPENAI_BASE_URL=http://localhost:20128/v1
+VIDEO_VL_MODEL_NAME=openrouter/openai/gpt-4o-mini
+```
+
+For direct OpenRouter VLM calls, use:
+
+```env
+VIDEO_VL_API_KEY=<openrouter-key>
+VIDEO_VL_BASE_URL=https://openrouter.ai/api/v1
+VIDEO_VL_MODEL_NAME=openai/gpt-4o-mini
 ```
 
 `ffmpeg` and `ffprobe` must be available on `PATH`.
