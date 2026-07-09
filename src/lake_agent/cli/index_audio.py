@@ -7,8 +7,10 @@ from typing import Callable
 
 from lake_agent.config import LocalSettings, PostgresSettings
 from lake_agent.indexing.audio import (
+    AudioEnrichmentOptions,
     AudioIndexingProgress,
     AudioIndexingService,
+    AudioLLMEnricher,
     AudioParseOptions,
     AudioTranscriptParser,
     OpenRouterAudioTranscriber,
@@ -43,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of audio documents to flush to the vector store at once",
     )
     parser.add_argument(
+        "--enrich-batch-size",
+        type=int,
+        default=10,
+        help="Number of audio files to send in each audio enrichment batch",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-index unchanged files and call ASR/import transcript again",
@@ -56,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-vector",
         action="store_true",
         help="Skip embedding/vector indexing and only persist audio transcripts",
+    )
+    parser.add_argument(
+        "--no-enrich",
+        action="store_true",
+        help="Skip LLM enrichment and store deterministic transcript only",
     )
     parser.add_argument(
         "--transcript-dir",
@@ -92,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.batch_size <= 0:
         raise SystemExit("--batch-size must be greater than 0")
+    if args.enrich_batch_size <= 0:
+        raise SystemExit("--enrich-batch-size must be greater than 0")
     if args.max_chunk_seconds <= 0:
         raise SystemExit("--max-chunk-seconds must be greater than 0")
     if args.chunk_overlap_seconds < 0:
@@ -116,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
         with database.connect() as connection:
             database.initialize(connection)
             repository = AudioIndexRepository(connection)
+            enricher = None if args.no_enrich else AudioLLMEnricher.from_env(
+                options=AudioEnrichmentOptions()
+            )
             vector_store = None
             if not args.no_vector:
                 vector_store = build_pgvector_store(
@@ -134,7 +152,9 @@ def main(argv: list[str] | None = None) -> int:
                     transcript_dir=transcript_dir,
                 ),
                 repository,
+                enricher=enricher,
                 vector_store=vector_store,
+                enrich_batch_size=args.enrich_batch_size,
                 vector_batch_size=args.batch_size,
                 progress_callback=progress_callback,
             )

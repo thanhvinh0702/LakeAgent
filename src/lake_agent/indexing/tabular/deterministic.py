@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import posixpath
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -337,7 +338,7 @@ class _WorkbookArchive:
                 if not rel_id or rel_id not in workbook_rels:
                     continue
                 target = workbook_rels[rel_id]
-                sheet_xml = archive.read(f"xl/{target}")
+                sheet_xml = archive.read(_resolve_xlsx_part_path(target))
                 rows = _sheet_rows(sheet_xml, shared_strings)
                 if rows:
                     sheet_rows.append((name, rows))
@@ -357,6 +358,17 @@ def _relationship_map(content: bytes) -> dict[str, str]:
         if rel_id and target:
             mapping[rel_id] = target
     return mapping
+
+
+def _resolve_xlsx_part_path(target: str) -> str:
+    normalized_target = target.replace("\\", "/").strip()
+    if not normalized_target:
+        raise KeyError("Empty worksheet target path in XLSX relationships.")
+
+    normalized_target = normalized_target.lstrip("/")
+    if normalized_target.startswith("xl/"):
+        return posixpath.normpath(normalized_target)
+    return posixpath.normpath(f"xl/{normalized_target}")
 
 
 def _shared_strings(archive: zipfile.ZipFile) -> list[str]:

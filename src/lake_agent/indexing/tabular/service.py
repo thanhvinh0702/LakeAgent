@@ -115,6 +115,17 @@ class TabularIndexingService:
             source_id = _stable_source_id(indexed_file.relative_path)
 
             try:
+                self._emit_progress(
+                    event="processing",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message="Parsing tabular file",
+                )
                 result = self._parser.parse_file(
                     absolute_path,
                     relative_path=indexed_file.relative_path,
@@ -214,6 +225,19 @@ class TabularIndexingService:
                     processed_count=processed_count,
                     errors=errors,
                 )
+        if vector_batch:
+            final_batch_path = enrich_pending[-1][0].relative_path if enrich_pending else None
+            self._emit_progress(
+                event="vectorizing_batch",
+                relative_path=final_batch_path,
+                processed_count=processed_count,
+                total_count=total_count,
+                indexed_count=indexed_count,
+                unchanged_count=unchanged_count,
+                error_count=error_count,
+                vector_document_count=vector_document_count,
+                message=f"Flushing final vector batch of {len(vector_batch)} tabular files",
+            )
         vector_document_count += self._flush_vector_batch(vector_batch)
         self._repository.mark_missing(normalized_prefix, indexed_at)
         self._emit_progress(
@@ -253,6 +277,17 @@ class TabularIndexingService:
         if not pending:
             return indexed_count, processed_count, vector_document_count
 
+        self._emit_progress(
+            event="enriching_batch",
+            relative_path=pending[-1][0].relative_path,
+            processed_count=processed_count,
+            total_count=total_count,
+            indexed_count=indexed_count,
+            unchanged_count=unchanged_count,
+            error_count=error_count,
+            vector_document_count=vector_document_count,
+            message=f"Enriching batch of {len(pending)} tabular files",
+        )
         results = [result for _, result in pending]
         if self._enricher is not None:
             results = self._enricher.enrich_batch(results)
@@ -268,6 +303,17 @@ class TabularIndexingService:
             vector_batch.append(result)
             indexed_count += 1
             if len(vector_batch) >= self._vector_batch_size:
+                self._emit_progress(
+                    event="vectorizing_batch",
+                    relative_path=indexed_file.relative_path,
+                    processed_count=processed_count,
+                    total_count=total_count,
+                    indexed_count=indexed_count,
+                    unchanged_count=unchanged_count,
+                    error_count=error_count,
+                    vector_document_count=vector_document_count,
+                    message=f"Flushing vector batch of {len(vector_batch)} tabular files",
+                )
                 vector_document_count += self._flush_vector_batch(vector_batch)
                 vector_batch.clear()
             processed_count += 1

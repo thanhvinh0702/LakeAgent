@@ -1,4 +1,4 @@
-"""Deterministic sql script indexing for SQL files."""
+"""Deterministic SQL script indexing."""
 
 from lake_agent.indexing.sql_script.deterministic import (
     DeterministicSqlScriptParser,
@@ -17,6 +17,8 @@ from lake_agent.indexing.sql_script.vector_store import (
     add_sql_script_result,
     add_sql_script_results,
     build_batch_sql_script_documents,
+    build_openai_embeddings,
+    build_pgvector_store,
     build_sql_script_documents,
 )
 
@@ -31,5 +33,7 @@ __all__ = [
     "add_sql_script_result",
     "add_sql_script_results",
     "build_batch_sql_script_documents",
+    "build_openai_embeddings",
+    "build_pgvector_store",
     "build_sql_script_documents",
 ]

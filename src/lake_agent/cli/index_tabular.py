@@ -148,6 +148,8 @@ def _build_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
             "errors": progress.error_count,
             "vectors": progress.vector_document_count,
         }
+        if progress.event in {"processing", "enriching_batch", "vectorizing_batch"} and progress.relative_path and progress.message:
+            tqdm.write(f"INFO {progress.relative_path}: {progress.message}", file=sys.stderr)
         if progress.event == "error" and progress.relative_path and progress.message:
             tqdm.write(f"ERROR {progress.relative_path}: {progress.message}", file=sys.stderr)
         bar.set_postfix(postfix)
@@ -184,6 +186,16 @@ def _plain_progress_reporter() -> Callable[[TabularIndexingProgress], None]:
                 f"(indexed={progress.indexed_count}, unchanged={progress.unchanged_count}, "
                 f"errors={progress.error_count}, vectors={progress.vector_document_count})"
                 f"{extra}",
+                file=sys.stderr,
+            )
+            return
+
+        if progress.event in {"processing", "enriching_batch", "vectorizing_batch"}:
+            detail = progress.message or progress.event.replace("_", " ")
+            print(
+                f"INFO {progress.relative_path or '<batch>'}: {detail} "
+                f"(indexed={progress.indexed_count}, unchanged={progress.unchanged_count}, "
+                f"errors={progress.error_count}, vectors={progress.vector_document_count})",
                 file=sys.stderr,
             )
             return

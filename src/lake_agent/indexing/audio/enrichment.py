@@ -8,46 +8,43 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from lake_agent.config import LLMSettings
-from lake_agent.domain.indexing_models import (
-    EnrichedSqlScriptResult,
-    SqlScriptIndexResult,
-)
-
+from lake_agent.domain.indexing_models import AudioIndexResult, EnrichedAudioResult
 
 _SYSTEM_PROMPT = """
-You enrich parsed SQL script documents for a data lake index.
+You enrich parsed audio transcripts for a data lake index.
 
 Your job:
-- infer concise file-level meaning from the parsed SQL commands
-- keep the output grounded in the provided content
+- infer concise file-level meaning from the provided transcript
+- keep the output grounded in the provided transcript and metadata
 - do not invent facts or context not supported by the input
 - prefer short, retrieval-friendly summaries and keywords
 """.strip()
 
 
 @dataclass(frozen=True, slots=True)
-class SqlScriptEnrichmentOptions:
+class AudioEnrichmentOptions:
     keyword_limit: int = 8
+    transcript_character_limit: int = 2400
     section_character_limit: int = 1200
     section_count_limit: int = 12
 
 
-class SqlScriptLLMEnricher:
+class AudioLLMEnricher:
     def __init__(
         self,
-        invoke_enrichment: Callable[[str, str], EnrichedSqlScriptResult],
-        invoke_batch_enrichment: Callable[[list[tuple[str, str]]], list[EnrichedSqlScriptResult]] | None = None,
-        options: SqlScriptEnrichmentOptions | None = None,
+        invoke_enrichment: Callable[[str, str], EnrichedAudioResult],
+        invoke_batch_enrichment: Callable[[list[tuple[str, str]]], list[EnrichedAudioResult]] | None = None,
+        options: AudioEnrichmentOptions | None = None,
     ) -> None:
         self._invoke_enrichment = invoke_enrichment
         self._invoke_batch_enrichment = invoke_batch_enrichment
-        self._options = options or SqlScriptEnrichmentOptions()
+        self._options = options or AudioEnrichmentOptions()
 
     @classmethod
     def from_env(
         cls,
-        options: SqlScriptEnrichmentOptions | None = None,
-    ) -> "SqlScriptLLMEnricher":
+        options: AudioEnrichmentOptions | None = None,
+    ) -> "AudioLLMEnricher":
         settings = LLMSettings.from_env()
         return cls(
             invoke_enrichment=_build_langchain_enrichment_invoker(settings),
@@ -55,13 +52,13 @@ class SqlScriptLLMEnricher:
             options=options,
         )
 
-    def enrich(self, result: SqlScriptIndexResult) -> SqlScriptIndexResult:
+    def enrich(self, result: AudioIndexResult) -> AudioIndexResult:
         payload = self._build_payload(result)
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload))
         _apply_enrichment(result, enriched, self._options)
         return result
 
-    def enrich_batch(self, results: list[SqlScriptIndexResult]) -> list[SqlScriptIndexResult]:
+    def enrich_batch(self, results: list[AudioIndexResult]) -> list[AudioIndexResult]:
         if not results:
             return []
         if self._invoke_batch_enrichment is None or len(results) == 1:
@@ -81,29 +78,40 @@ class SqlScriptLLMEnricher:
             _apply_enrichment(result, enriched, self._options)
         return results
 
-    def _build_payload(self, result: SqlScriptIndexResult) -> dict[str, Any]:
-        sections: list[dict[str, Any]] = []
-        for section in result.sections[: self._options.section_count_limit]:
+    def _build_payload(self, result: AudioIndexResult) -> dict[str, Any]:
+        sections = []
+        sampled_sections = _sample_evenly(result.sections, self._options.section_count_limit)
+        for section in sampled_sections:
             sections.append(
                 {
                     "chunk_index": section.chunk_index,
+                    "start_seconds": section.start_seconds,
+                    "end_seconds": section.end_seconds,
                     "content": section.content[: self._options.section_character_limit],
                 }
             )
-
+        transcript_excerpt = None
+        if result.transcript_text:
+            transcript_excerpt = result.transcript_text[: self._options.transcript_character_limit]
         return {
             "source_id": result.source_id,
             "relative_path": result.relative_path,
             "filename": result.filename,
             "file_format": result.file_format,
+            "duration_seconds": result.duration_seconds,
+            "transcript_language": result.transcript_language,
+            "codec_name": result.codec_name,
+            "sample_rate": result.sample_rate,
+            "channels": result.channels,
             "parse_warnings": result.parse_warnings,
+            "transcript_excerpt": transcript_excerpt,
             "sections": sections,
         }
 
 
 def _build_langchain_enrichment_invoker(
     settings: LLMSettings,
-) -> Callable[[str, str], EnrichedSqlScriptResult]:
+) -> Callable[[str, str], EnrichedAudioResult]:
     client = init_chat_model(
         model_provider="openai",
         api_key=settings.api_key,
@@ -111,12 +119,12 @@ def _build_langchain_enrichment_invoker(
         model=settings.model_name,
         temperature=0,
     ).with_structured_output(
-        EnrichedSqlScriptResult,
+        EnrichedAudioResult,
         method="function_calling",
         include_raw=True,
     )
 
-    def invoke_enrichment(system_prompt: str, user_prompt: str) -> EnrichedSqlScriptResult:
+    def invoke_enrichment(system_prompt: str, user_prompt: str) -> EnrichedAudioResult:
         response = client.invoke(
             [
                 SystemMessage(content=system_prompt),
@@ -130,7 +138,7 @@ def _build_langchain_enrichment_invoker(
 
 def _build_langchain_batch_enrichment_invoker(
     settings: LLMSettings,
-) -> Callable[[list[tuple[str, str]]], list[EnrichedSqlScriptResult]]:
+) -> Callable[[list[tuple[str, str]]], list[EnrichedAudioResult]]:
     client = init_chat_model(
         model_provider="openai",
         api_key=settings.api_key,
@@ -138,14 +146,14 @@ def _build_langchain_batch_enrichment_invoker(
         model=settings.model_name,
         temperature=0,
     ).with_structured_output(
-        EnrichedSqlScriptResult,
+        EnrichedAudioResult,
         method="function_calling",
         include_raw=True,
     )
 
     def invoke_batch_enrichment(
         prompt_pairs: list[tuple[str, str]],
-    ) -> list[EnrichedSqlScriptResult]:
+    ) -> list[EnrichedAudioResult]:
         responses = client.batch(
             [
                 [
@@ -155,10 +163,7 @@ def _build_langchain_batch_enrichment_invoker(
                 for system_prompt, user_prompt in prompt_pairs
             ]
         )
-        return [
-            _parse_enrichment_response(response, settings)
-            for response in responses
-        ]
+        return [_parse_enrichment_response(response, settings) for response in responses]
 
     return invoke_batch_enrichment
 
@@ -166,10 +171,10 @@ def _build_langchain_batch_enrichment_invoker(
 def _build_user_prompt(payload: dict[str, Any]) -> str:
     instructions = {
         "rules": [
-            "Keep summaries grounded in the provided SQL text.",
-            "Do not invent missing database tables, context, or schemas.",
+            "Keep summaries grounded in the provided transcript.",
+            "Do not invent missing context, dates, or entities.",
             "Prefer concise, retrieval-oriented wording.",
-            "File summary should describe what the SQL script does and what tables or logic it contains.",
+            "File summary should describe what the audio contains and what a user can find in it.",
             "Keywords should be concrete nouns or short phrases, not full sentences.",
         ],
         "input": payload,
@@ -178,77 +183,61 @@ def _build_user_prompt(payload: dict[str, Any]) -> str:
 
 
 def _apply_enrichment(
-    result: SqlScriptIndexResult,
-    enriched: EnrichedSqlScriptResult,
-    options: SqlScriptEnrichmentOptions,
+    result: AudioIndexResult,
+    enriched: EnrichedAudioResult,
+    options: AudioEnrichmentOptions,
 ) -> None:
     result.file_summary = enriched.file_summary
     result.file_keywords = enriched.file_keywords[: options.keyword_limit]
-
-    for section in result.sections:
-        section.search_text = _build_section_search_text(
-            heading=section.heading,
-            content=section.content,
-            file_summary=result.file_summary,
-        )
     result.file_search_text = _build_file_search_text(result)
 
 
 def _parse_enrichment_response(
     response: Any,
     settings: LLMSettings,
-) -> EnrichedSqlScriptResult:
-    if isinstance(response, EnrichedSqlScriptResult):
+) -> EnrichedAudioResult:
+    if isinstance(response, EnrichedAudioResult):
         return response
-
     if isinstance(response, dict) and "parsed" in response:
         parsed = response.get("parsed")
-        if isinstance(parsed, EnrichedSqlScriptResult):
+        if isinstance(parsed, EnrichedAudioResult):
             return parsed
         if parsed is not None:
-            return EnrichedSqlScriptResult.model_validate(parsed)
+            return EnrichedAudioResult.model_validate(parsed)
         raise RuntimeError(
             "LLM structured output returned no parsed result. "
             f"model={settings.model_name!r}, base_url={settings.base_url!r}, "
             f"parsing_error={response.get('parsing_error')!r}, "
             f"raw_response={response.get('raw')!r}"
         )
-
     if response is None:
         raise RuntimeError(
             "LLM returned None for structured output. "
             f"model={settings.model_name!r}, base_url={settings.base_url!r}."
         )
-
-    return EnrichedSqlScriptResult.model_validate(response)
-
-
-def _build_section_search_text(
-    *,
-    heading: str | None,
-    content: str,
-    file_summary: str | None,
-) -> str:
-    parts: list[str] = []
-    if heading:
-        parts.append(heading)
-    if file_summary:
-        parts.append(file_summary)
-    parts.append(content)
-    return "\n".join(part for part in parts if part).strip()
+    return EnrichedAudioResult.model_validate(response)
 
 
-def _build_file_search_text(result: SqlScriptIndexResult) -> str | None:
-    parts: list[str] = []
-    if result.filename:
-        parts.append(result.filename)
-    if result.relative_path:
-        parts.append(result.relative_path)
+def _build_file_search_text(result: AudioIndexResult) -> str | None:
+    parts = [result.filename, result.relative_path, "Audio transcript"]
+    if result.duration_seconds is not None:
+        parts.append(f"Duration: {result.duration_seconds:.1f} seconds")
     if result.file_summary:
         parts.append(result.file_summary)
     if result.file_keywords:
         parts.append(", ".join(result.file_keywords))
-    for section in result.sections[:3]:
-        if section.content:
-            parts.append(section.content[:200])
+    if result.transcript_text:
+        parts.append(result.transcript_text[:1600])
     return "\n".join(part for part in parts if part).strip() or None
+
+
+def _sample_evenly[T](items: list[T], limit: int) -> list[T]:
+    if limit <= 0 or not items:
+        return []
+    if len(items) <= limit:
+        return items
+    if limit == 1:
+        return [items[0]]
+    max_index = len(items) - 1
+    sampled_indices = [(position * max_index) // (limit - 1) for position in range(limit)]
+    return [items[index] for index in sampled_indices]

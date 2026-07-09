@@ -5,6 +5,9 @@ from lake_agent.domain.indexing_models.audio import (
     AudioIndexResult,
     AudioSection,
 )
+from lake_agent.domain.indexing_models.audio_enrichment import (
+    EnrichedAudioResult,
+)
 from lake_agent.domain.indexing_models.document import (
     DocumentFormat,
     DocumentEmbeddedImage,
@@ -86,6 +89,7 @@ __all__ = [
     "AudioFormat",
     "AudioIndexResult",
     "AudioSection",
+    "EnrichedAudioResult",
     "ColumnProfile",
     "DatabaseFormat",
     "DatabaseIndexResult",

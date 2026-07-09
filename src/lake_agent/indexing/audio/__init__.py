@@ -14,6 +14,10 @@ from lake_agent.indexing.audio.service import (
     AudioIndexingProgress,
     AudioIndexingService,
 )
+from lake_agent.indexing.audio.enrichment import (
+    AudioEnrichmentOptions,
+    AudioLLMEnricher,
+)
 from lake_agent.indexing.audio.transcriber import (
     AudioTranscription,
     OpenRouterAudioTranscriber,
@@ -31,6 +35,8 @@ __all__ = [
     "AudioIndexingError",
     "AudioIndexingProgress",
     "AudioIndexingService",
+    "AudioEnrichmentOptions",
+    "AudioLLMEnricher",
     "AudioParseOptions",
     "AudioProbe",
     "AudioTranscriptParser",

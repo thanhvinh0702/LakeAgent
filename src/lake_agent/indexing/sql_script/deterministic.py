@@ -4,7 +4,11 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from lake_agent.domain.indexing_models import SqlScriptFormat, SqlScriptIndexResult, SqlScriptSection
+from lake_agent.domain.indexing_models import (
+    SqlScriptFormat,
+    SqlScriptIndexResult,
+    SqlScriptSection,
+)
 from lake_agent.indexing.text.chunking import build_basic_search_text, normalize_text
 
 
@@ -50,49 +54,11 @@ class DeterministicSqlScriptParser:
         warnings: list[str] = []
 
         statements = _split_sql_statements(normalized_sql)
-        
-        sections: list[SqlScriptSection] = []
-        chunk_index = 1
-        current_chunk_parts = []
-        current_char_count = 0
-        
-        def flush_chunk():
-            nonlocal chunk_index, current_char_count
-            if not current_chunk_parts:
-                return
-            content = "\n\n".join(current_chunk_parts).strip()
-            sec_id = _stable_id(f"{normalized_source_id}:{chunk_index}", prefix="section")
-            sections.append(
-                SqlScriptSection(
-                    section_id=sec_id,
-                    chunk_index=chunk_index,
-                    heading=None,
-                    content=content,
-                    char_count=len(content),
-                )
-            )
-            chunk_index += 1
-            current_chunk_parts.clear()
-            current_char_count = 0
-
-        for stmt in statements:
-            stmt_len = len(stmt)
-            if stmt_len > self._options.max_chars_per_chunk:
-                flush_chunk()
-                for start in range(0, stmt_len, self._options.max_chars_per_chunk):
-                    part = stmt[start:start + self._options.max_chars_per_chunk].strip()
-                    if part:
-                        current_chunk_parts.append(part)
-                        flush_chunk()
-            elif current_char_count + stmt_len + (2 if current_chunk_parts else 0) > self._options.max_chars_per_chunk:
-                flush_chunk()
-                current_chunk_parts.append(stmt)
-                current_char_count = stmt_len
-            else:
-                current_chunk_parts.append(stmt)
-                current_char_count += stmt_len + (2 if current_chunk_parts else 0)
-                
-        flush_chunk()
+        sections = _build_sections(
+            statements,
+            source_id=normalized_source_id,
+            options=self._options,
+        )
 
         if not sections:
             warnings.append("The file did not contain any readable SQL script sections.")
@@ -115,56 +81,114 @@ class DeterministicSqlScriptParser:
         return result
 
 
+def _build_sections(
+    statements: list[str],
+    *,
+    source_id: str,
+    options: SqlScriptParseOptions,
+) -> list[SqlScriptSection]:
+    sections: list[SqlScriptSection] = []
+    chunk_index = 1
+    current_parts: list[str] = []
+    current_char_count = 0
+
+    def flush_chunk() -> None:
+        nonlocal chunk_index, current_char_count
+        if not current_parts:
+            return
+        content = "\n\n".join(current_parts).strip()
+        if not content:
+            current_parts.clear()
+            current_char_count = 0
+            return
+        section_id = _stable_id(f"{source_id}:{chunk_index}", prefix="section")
+        sections.append(
+            SqlScriptSection(
+                section_id=section_id,
+                chunk_index=chunk_index,
+                heading=None,
+                content=content,
+                char_count=len(content),
+            )
+        )
+        chunk_index += 1
+        current_parts.clear()
+        current_char_count = 0
+
+    for statement in statements:
+        statement_length = len(statement)
+        if statement_length > options.max_chars_per_chunk:
+            flush_chunk()
+            for start in range(0, statement_length, options.max_chars_per_chunk):
+                part = statement[start : start + options.max_chars_per_chunk].strip()
+                if not part:
+                    continue
+                current_parts.append(part)
+                flush_chunk()
+            continue
+
+        separator_length = 2 if current_parts else 0
+        if current_parts and current_char_count + separator_length + statement_length > options.max_chars_per_chunk:
+            flush_chunk()
+        current_parts.append(statement)
+        current_char_count += separator_length + statement_length
+
+    flush_chunk()
+
+    return sections
+
+
 def _split_sql_statements(sql: str) -> list[str]:
-    statements = []
-    current_statement = []
+    statements: list[str] = []
+    current_statement: list[str] = []
     in_single_quote = False
     in_double_quote = False
     in_line_comment = False
     in_block_comment = False
-    i = 0
-    n = len(sql)
-    while i < n:
-        char = sql[i]
-        
+    index = 0
+    length = len(sql)
+
+    while index < length:
+        char = sql[index]
+
         if not in_single_quote and not in_double_quote:
             if in_line_comment:
-                if char == '\n':
+                if char == "\n":
                     in_line_comment = False
             elif in_block_comment:
-                if char == '*' and i + 1 < n and sql[i+1] == '/':
-                    current_statement.append('*/')
-                    i += 2
+                if char == "*" and index + 1 < length and sql[index + 1] == "/":
+                    current_statement.append("*/")
+                    index += 2
                     in_block_comment = False
                     continue
             else:
-                if char == '-' and i + 1 < n and sql[i+1] == '-':
+                if char == "-" and index + 1 < length and sql[index + 1] == "-":
                     in_line_comment = True
-                elif char == '/' and i + 1 < n and sql[i+1] == '*':
+                elif char == "/" and index + 1 < length and sql[index + 1] == "*":
                     in_block_comment = True
-        
+
         if not in_line_comment and not in_block_comment:
             if char == "'" and not in_double_quote:
                 in_single_quote = not in_single_quote
             elif char == '"' and not in_single_quote:
                 in_double_quote = not in_double_quote
-            
-            if char == ';' and not in_single_quote and not in_double_quote:
+
+            if char == ";" and not in_single_quote and not in_double_quote:
                 current_statement.append(char)
-                stmt_text = "".join(current_statement).strip()
-                if stmt_text:
-                    statements.append(stmt_text)
+                statement_text = "".join(current_statement).strip()
+                if statement_text:
+                    statements.append(statement_text)
                 current_statement = []
-                i += 1
+                index += 1
                 continue
-                
+
         current_statement.append(char)
-        i += 1
-        
-    stmt_text = "".join(current_statement).strip()
-    if stmt_text:
-        statements.append(stmt_text)
-        
+        index += 1
+
+    statement_text = "".join(current_statement).strip()
+    if statement_text:
+        statements.append(statement_text)
+
     return statements
 
 

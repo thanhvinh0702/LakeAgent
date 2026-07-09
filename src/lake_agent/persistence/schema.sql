@@ -187,6 +187,27 @@ CREATE INDEX IF NOT EXISTS idx_audio_files_format
 CREATE INDEX IF NOT EXISTS idx_audio_files_status
     ON audio_files(status);
 
+
+CREATE TABLE IF NOT EXISTS audio_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES audio_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    start_seconds DOUBLE PRECISION,
+    end_seconds DOUBLE PRECISION,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audio_sections_source_id
+    ON audio_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_audio_sections_chunk_index
+    ON audio_sections(chunk_index);
+
 CREATE TABLE IF NOT EXISTS video_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,
@@ -500,6 +521,25 @@ CREATE INDEX IF NOT EXISTS idx_sql_script_files_format
 
 CREATE INDEX IF NOT EXISTS idx_sql_script_files_status
     ON sql_script_files(status);
+
+CREATE TABLE IF NOT EXISTS sql_script_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sql_script_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL CHECK (chunk_index >= 1),
+    heading TEXT,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0 CHECK (char_count >= 0),
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_sections_source_id
+    ON sql_script_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_sections_chunk_index
+    ON sql_script_sections(chunk_index);
 
 CREATE TABLE IF NOT EXISTS database_files (
     source_id TEXT PRIMARY KEY,

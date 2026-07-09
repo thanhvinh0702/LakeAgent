@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -74,12 +75,12 @@ class SqlScriptIndexingService:
         unchanged_count = 0
         error_count = 0
         vector_document_count = 0
+        processed_count = 0
         errors: list[SqlScriptIndexingError] = []
         enrich_pending: list[tuple[IndexedSqlScriptFile, SqlScriptIndexResult]] = []
         vector_batch: list[SqlScriptIndexResult] = []
         files = self._scan_files(normalized_prefix)
         total_count = len(files)
-        processed_count = 0
 
         self._emit_progress(
             event="start",
@@ -214,6 +215,7 @@ class SqlScriptIndexingService:
                     processed_count=processed_count,
                     errors=errors,
                 )
+
         vector_document_count += self._flush_vector_batch(vector_batch)
         self._repository.mark_missing(normalized_prefix, indexed_at)
         self._emit_progress(
@@ -410,7 +412,5 @@ def _normalize_prefix(prefix: str) -> str:
 
 
 def _stable_source_id(relative_path: str) -> str:
-    import hashlib
-
     digest = hashlib.sha1(relative_path.encode("utf-8")).hexdigest()[:16]
     return f"source_{digest}"

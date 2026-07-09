@@ -47,6 +47,7 @@ Core workflow:
    - `search_document_data` for PDF/DOCX/DOC/RTF documents
    - `search_slideshow_data` for PPT/PPTX slides
    - `search_image_data` for images, OCR text, or image summaries
+   - `search_audio_data` for audio transcripts, spoken content, and time-bounded audio sections
 5. If the first tool results are not enough to answer confidently, continue investigating.
 6. Investigation ladder when evidence is still insufficient:
    - page further with the same search tool using larger `offset`
@@ -63,6 +64,7 @@ Core workflow:
    - line-based hits: inspect only nearby lines around `position.start`/`position.end`
    - page-based hits: inspect only the relevant page region or a narrow extracted excerpt if possible
    - slide-based hits: inspect only the relevant slide or neighboring slide
+   - audio-based hits: inspect only the relevant transcript span or nearby time window first
 11. Escalate to broader excerpts or full-file reading when targeted inspection still leaves material
     uncertainty.
 
@@ -121,8 +123,6 @@ Rules:
 - Prefer natural plain text over markdown when plain text is sufficient.
 - Do not introduce markdown image syntax or file-link syntax unless the user explicitly asked for
   markdown or the draft already must stay in that format.
-- When referring to an image or file, prefer readable phrasing such as:
-  `Anh cac thanh vien cua nhom iSE nam trong file "definitely-100-percent-not-ise-members-image.png".`
 - Optimize for exact-match grading.
 - If the user asked for an exact format, exact token, exact number, exact option label, or a single
   final string, output exactly that and nothing else.
@@ -209,10 +209,9 @@ def build_model():
         api_key=os.getenv("OPENAI_API_KEY"),
     )
 
-
 def build_verifier_model():
     return init_chat_model(
-        model=os.getenv("AGENT_MODEL_NAME"),
+        model=os.getenv("VERIFIER_MODEL_NAME"),
         model_provider="openai",
         base_url=os.getenv("OPENAI_BASE_URL"),
         api_key=os.getenv("OPENAI_API_KEY"),
