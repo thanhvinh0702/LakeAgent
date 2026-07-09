@@ -259,3 +259,156 @@ CREATE INDEX IF NOT EXISTS idx_image_sections_source_id
 
 CREATE INDEX IF NOT EXISTS idx_image_sections_chunk_index
     ON image_sections(chunk_index);
+
+
+CREATE TABLE IF NOT EXISTS web_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_files_relative_path
+    ON web_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_web_files_format
+    ON web_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_web_files_status
+    ON web_files(status);
+
+
+CREATE TABLE IF NOT EXISTS web_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES web_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_sections_source_id
+    ON web_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_web_sections_chunk_index
+    ON web_sections(chunk_index);
+
+
+CREATE TABLE IF NOT EXISTS sql_script_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_files_relative_path
+    ON sql_script_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_files_format
+    ON sql_script_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_files_status
+    ON sql_script_files(status);
+
+
+CREATE TABLE IF NOT EXISTS sql_script_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sql_script_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_sections_source_id
+    ON sql_script_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_sql_script_sections_chunk_index
+    ON sql_script_sections(chunk_index);
+
+
+CREATE TABLE IF NOT EXISTS database_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_database_files_relative_path
+    ON database_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_database_files_format
+    ON database_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_database_files_status
+    ON database_files(status);
+
+
+CREATE TABLE IF NOT EXISTS database_tables (
+    table_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES database_files(source_id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL,
+    row_count INTEGER,
+    column_count INTEGER NOT NULL DEFAULT 0,
+    columns_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    preview_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    summary TEXT,
+    keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    table_search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_database_tables_source_id
+    ON database_tables(source_id);

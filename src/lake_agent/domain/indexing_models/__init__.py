@@ -35,25 +35,65 @@ from lake_agent.domain.indexing_models.tabular_enrichment import (
     EnrichedTableProfile,
     EnrichedTabularResult,
 )
+from lake_agent.domain.indexing_models.web import (
+    WebFormat,
+    WebIndexResult,
+    WebSection,
+)
+from lake_agent.domain.indexing_models.web_enrichment import (
+    EnrichedWebResult,
+)
+from lake_agent.domain.indexing_models.sql_script import (
+    SqlScriptFormat,
+    SqlScriptIndexResult,
+    SqlScriptSection,
+)
+from lake_agent.domain.indexing_models.sql_script_enrichment import (
+    EnrichedSqlScriptResult,
+)
+from lake_agent.domain.indexing_models.database import (
+    DatabaseFormat,
+    DbColumnProfile,
+    DbTableProfile,
+    DatabaseIndexResult,
+)
+from lake_agent.domain.indexing_models.database_enrichment import (
+    EnrichedDatabaseTableProfile,
+    EnrichedDatabaseResult,
+)
 
 __all__ = [
     "ColumnProfile",
+    "DatabaseFormat",
+    "DatabaseIndexResult",
+    "DbColumnProfile",
+    "DbTableProfile",
     "DocumentFormat",
     "DocumentIndexResult",
     "DocumentSection",
+    "EnrichedDatabaseResult",
+    "EnrichedDatabaseTableProfile",
     "EnrichedDocumentResult",
+    "EnrichedImageResult",
+    "EnrichedSqlScriptResult",
+    "EnrichedTableProfile",
+    "EnrichedTabularResult",
+    "EnrichedTextResult",
+    "EnrichedWebResult",
     "ImageFormat",
     "ImageIndexResult",
     "ImageSection",
-    "EnrichedTableProfile",
-    "EnrichedImageResult",
-    "EnrichedTextResult",
-    "EnrichedTabularResult",
     "ScalarType",
+    "SqlScriptFormat",
+    "SqlScriptIndexResult",
+    "SqlScriptSection",
     "TableFormat",
     "TableProfile",
     "TabularIndexResult",
     "TextFormat",
     "TextIndexResult",
     "TextSection",
+    "WebFormat",
+    "WebIndexResult",
+    "WebSection",
 ]
