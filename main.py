@@ -43,6 +43,7 @@ Core workflow:
 4. Prefer modality-specific search tools when the question clearly points to one modality:
    - `search_tabular_data` for tables/spreadsheets/CSV-style facts
    - `search_text_data` for TXT/MD narrative text
+   - `search_web_data` for HTML/HTM web pages and locally stored web content
    - `search_document_data` for PDF/DOCX/DOC/RTF documents
    - `search_slideshow_data` for PPT/PPTX slides
    - `search_image_data` for images, OCR text, or image summaries

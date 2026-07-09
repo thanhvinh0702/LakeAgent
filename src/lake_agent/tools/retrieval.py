@@ -11,13 +11,14 @@ from lake_agent.config import EmbeddingSettings, LocalSettings, PostgresSettings
 from lake_agent.indexing.tabular.vector_store import build_pgvector_store
 from lake_agent.persistence.database import PostgresDatabase
 
-ModalityName = Literal["tabular", "text", "document", "slideshow", "image"]
+ModalityName = Literal["tabular", "text", "web", "document", "slideshow", "image"]
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievalTableNames:
     tabular: str = "tabular_index"
     text: str = "text_index"
+    web: str = "web_index"
     document: str = "document_index"
     slideshow: str = "slideshow_index"
     image: str = "image_index"
@@ -89,6 +90,11 @@ class IndexedDataRetriever:
                 embedding_settings=embedding_settings,
                 postgres_settings=postgres_settings,
             ),
+            "web": build_pgvector_store(
+                table_names.web,
+                embedding_settings=embedding_settings,
+                postgres_settings=postgres_settings,
+            ),
             "document": build_pgvector_store(
                 table_names.document,
                 embedding_settings=embedding_settings,
@@ -122,6 +128,9 @@ class IndexedDataRetriever:
     def query_text(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("text", query, limit, offset)
 
+    def query_web(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
+        return self._query_modality("web", query, limit, offset)
+
     def query_document(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("document", query, limit, offset)
 
@@ -134,7 +143,7 @@ class IndexedDataRetriever:
     def query_all(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         combined: list[dict[str, Any]] = []
         skipped_modalities: list[dict[str, str]] = []
-        for modality in ("tabular", "text", "document", "slideshow", "image"):
+        for modality in ("tabular", "text", "web", "document", "slideshow", "image"):
             try:
                 modality_results = self._query_modality(modality, query, limit + offset, 0)["results"]
             except Exception as exc:
@@ -166,7 +175,7 @@ class IndexedDataRetriever:
     def get_file_summary(self, file_path: str) -> dict[str, Any]:
         candidates = self._candidate_file_paths(file_path)
         for candidate in candidates:
-            for modality in ("tabular", "text", "document", "slideshow", "image"):
+            for modality in ("tabular", "text", "web", "document", "slideshow", "image"):
                 loader = getattr(self, f"_load_{modality}_file_by_path")
                 row = loader(candidate)
                 if row is not None:
@@ -219,6 +228,13 @@ class IndexedDataRetriever:
                 return self._format_text_file_hit(row, score)
             row = self._load_text_section(str(metadata["section_id"]))
             return self._format_text_section_hit(row, score)
+
+        if modality == "web":
+            if record_type == "file":
+                row = self._load_web_file(str(metadata["source_id"]))
+                return self._format_web_file_hit(row, score)
+            row = self._load_web_section(str(metadata["section_id"]))
+            return self._format_web_section_hit(row, score)
 
         if modality == "document":
             if record_type == "file":
@@ -317,6 +333,36 @@ class IndexedDataRetriever:
         ).fetchone()
         if row is None:
             raise ValueError(f"Missing document file row for source_id={source_id}")
+        return row
+
+    def _load_web_file(self, source_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM web_files
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing web file row for source_id={source_id}")
+        return row
+
+    def _load_web_section(self, section_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT s.section_id, s.source_id, f.relative_path, f.filename, f.file_format,
+                   s.chunk_index, s.heading, s.content, s.search_text, s.line_start, s.line_end,
+                   s.char_count, s.warnings
+            FROM web_sections AS s
+            JOIN web_files AS f ON f.source_id = s.source_id
+            WHERE s.section_id = %s
+            """,
+            (section_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing web section row for section_id={section_id}")
         return row
 
     def _load_document_section(self, section_id: str) -> dict[str, Any]:
@@ -429,6 +475,17 @@ class IndexedDataRetriever:
             (relative_path,),
         ).fetchone()
 
+    def _load_web_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM web_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
     def _load_slideshow_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
         return self._connection.execute(
             """
@@ -495,6 +552,31 @@ class IndexedDataRetriever:
     def _format_text_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
         hit = {
             "modality": "text",
+            "record_type": "section",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row.get("search_text") or row["content"],
+        }
+        position = _build_position(row, start_key="line_start", end_key="line_end", unit="line")
+        if position is not None:
+            hit["position"] = position
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_web_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "web",
+            "record_type": "file",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["file_summary"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_web_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "web",
             "record_type": "section",
             "file_path": row["relative_path"],
             "score": float(score),
@@ -685,6 +767,15 @@ def build_langchain_retrieval_tools(
             name="search_text_data",
             description=(
                 "Search indexed text files such as TXT/MD and return the nearest file or "
+                "section hits with true content, metadata, and score."
+            ),
+            args_schema=SearchArgs,
+        ),
+        StructuredTool.from_function(
+            func=_search(retriever.query_web),
+            name="search_web_data",
+            description=(
+                "Search indexed web files such as HTML/HTM and return the nearest file or "
                 "section hits with true content, metadata, and score."
             ),
             args_schema=SearchArgs,

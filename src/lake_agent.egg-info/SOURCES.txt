@@ -14,6 +14,7 @@ src/lake_agent/cli/index_image.py
 src/lake_agent/cli/index_slideshow.py
 src/lake_agent/cli/index_tabular.py
 src/lake_agent/cli/index_text.py
+src/lake_agent/cli/index_web.py
 src/lake_agent/cli/inventory.py
 src/lake_agent/domain/__init__.py
 src/lake_agent/domain/enums.py
@@ -29,6 +30,8 @@ src/lake_agent/domain/indexing_models/tabular.py
 src/lake_agent/domain/indexing_models/tabular_enrichment.py
 src/lake_agent/domain/indexing_models/text.py
 src/lake_agent/domain/indexing_models/text_enrichment.py
+src/lake_agent/domain/indexing_models/web.py
+src/lake_agent/domain/indexing_models/web_enrichment.py
 src/lake_agent/indexing/__init__.py
 src/lake_agent/indexing/document/__init__.py
 src/lake_agent/indexing/document/deterministic.py
@@ -38,6 +41,7 @@ src/lake_agent/indexing/document/service.py
 src/lake_agent/indexing/document/vector_store.py
 src/lake_agent/indexing/image/__init__.py
 src/lake_agent/indexing/image/deterministic.py
+src/lake_agent/indexing/image/docling_ocr.py
 src/lake_agent/indexing/image/ocr.py
 src/lake_agent/indexing/image/service.py
 src/lake_agent/indexing/image/vector_store.py
@@ -59,6 +63,11 @@ src/lake_agent/indexing/text/deterministic.py
 src/lake_agent/indexing/text/enrichment.py
 src/lake_agent/indexing/text/service.py
 src/lake_agent/indexing/text/vector_store.py
+src/lake_agent/indexing/web/__init__.py
+src/lake_agent/indexing/web/deterministic.py
+src/lake_agent/indexing/web/enrichment.py
+src/lake_agent/indexing/web/service.py
+src/lake_agent/indexing/web/vector_store.py
 src/lake_agent/inventory/__init__.py
 src/lake_agent/inventory/identifier.py
 src/lake_agent/inventory/scanner.py
@@ -69,10 +78,14 @@ src/lake_agent/persistence/repositories.py
 src/lake_agent/storage/__init__.py
 src/lake_agent/storage/base.py
 src/lake_agent/storage/local_store.py
+src/lake_agent/tools/__init__.py
+src/lake_agent/tools/retrieval.py
 tests/test_document_indexing.py
 tests/test_image_indexing.py
 tests/test_inventory.py
+tests/test_retrieval_tools.py
 tests/test_slideshow_indexing.py
+tests/test_summary_sampling.py
 tests/test_tabular_enrichment.py
 tests/test_tabular_indexing.py
 tests/test_tabular_persistence.py

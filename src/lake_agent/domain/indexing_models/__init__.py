@@ -41,6 +41,14 @@ from lake_agent.domain.indexing_models.text import (
 from lake_agent.domain.indexing_models.text_enrichment import (
     EnrichedTextResult,
 )
+from lake_agent.domain.indexing_models.web import (
+    WebFormat,
+    WebIndexResult,
+    WebSection,
+)
+from lake_agent.domain.indexing_models.web_enrichment import (
+    EnrichedWebResult,
+)
 from lake_agent.domain.indexing_models.tabular_enrichment import (
     EnrichedTableProfile,
     EnrichedTabularResult,
@@ -59,6 +67,7 @@ __all__ = [
     "EnrichedTableProfile",
     "EnrichedImageResult",
     "EnrichedTextResult",
+    "EnrichedWebResult",
     "EnrichedTabularResult",
     "EnrichedSlideshowResult",
     "ScalarType",
@@ -72,4 +81,7 @@ __all__ = [
     "TextFormat",
     "TextIndexResult",
     "TextSection",
+    "WebFormat",
+    "WebIndexResult",
+    "WebSection",
 ]
