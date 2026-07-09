@@ -63,6 +63,7 @@ src/lake_agent/indexing/document/vector_store.py
 src/lake_agent/indexing/image/__init__.py
 src/lake_agent/indexing/image/deterministic.py
 src/lake_agent/indexing/image/docling_ocr.py
+src/lake_agent/indexing/image/glb_rendering.py
 src/lake_agent/indexing/image/ocr.py
 src/lake_agent/indexing/image/service.py
 src/lake_agent/indexing/image/vector_store.py

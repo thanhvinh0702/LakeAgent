@@ -38,10 +38,14 @@ class ImageVLMEnricher:
         self,
         invoke_enrichment: Callable[[str, str, Path], EnrichedImageResult],
         invoke_batch_enrichment: Callable[[list[tuple[str, str, Path]]], list[EnrichedImageResult]] | None = None,
+        invoke_bytes_enrichment: Callable[[str, str, bytes, str], EnrichedImageResult] | None = None,
+        invoke_batch_bytes_enrichment: Callable[[list[tuple[str, str, bytes, str]]], list[EnrichedImageResult]] | None = None,
         options: ImageEnrichmentOptions | None = None,
     ) -> None:
         self._invoke_enrichment = invoke_enrichment
         self._invoke_batch_enrichment = invoke_batch_enrichment
+        self._invoke_bytes_enrichment = invoke_bytes_enrichment
+        self._invoke_batch_bytes_enrichment = invoke_batch_bytes_enrichment
         self._options = options or ImageEnrichmentOptions()
 
     @classmethod
@@ -54,6 +58,8 @@ class ImageVLMEnricher:
         return cls(
             invoke_enrichment=_build_langchain_enrichment_invoker(settings, resolved_options),
             invoke_batch_enrichment=_build_langchain_batch_enrichment_invoker(settings, resolved_options),
+            invoke_bytes_enrichment=_build_langchain_bytes_enrichment_invoker(settings, resolved_options),
+            invoke_batch_bytes_enrichment=_build_langchain_batch_bytes_enrichment_invoker(settings, resolved_options),
             options=resolved_options,
         )
 
@@ -61,6 +67,19 @@ class ImageVLMEnricher:
         path = Path(image_path).expanduser().resolve()
         payload = self._build_payload(result)
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload), path)
+        _apply_enrichment(result, enriched, self._options)
+        return result
+
+    def enrich_bytes(self, image_bytes: bytes, result: ImageIndexResult) -> ImageIndexResult:
+        if self._invoke_bytes_enrichment is None:
+            raise RuntimeError("This ImageVLMEnricher does not support in-memory image bytes.")
+        payload = self._build_payload(result)
+        enriched = self._invoke_bytes_enrichment(
+            _SYSTEM_PROMPT,
+            _build_user_prompt(payload),
+            image_bytes,
+            result.filename,
+        )
         _apply_enrichment(result, enriched, self._options)
         return result
 
@@ -91,6 +110,40 @@ class ImageVLMEnricher:
         if len(enriched_results) != len(results):
             raise RuntimeError(
                 "VLM batch enrichment returned a different number of results than inputs. "
+                f"expected={len(results)}, actual={len(enriched_results)}"
+            )
+        for result, enriched in zip(results, enriched_results, strict=True):
+            _apply_enrichment(result, enriched, self._options)
+        return results
+
+    def enrich_bytes_batch(
+        self,
+        image_payloads: list[tuple[str, bytes]],
+        results: list[ImageIndexResult],
+    ) -> list[ImageIndexResult]:
+        if not image_payloads or not results:
+            return []
+        if len(image_payloads) != len(results):
+            raise ValueError("image_payloads and results must have the same length")
+        if self._invoke_batch_bytes_enrichment is None or len(results) == 1:
+            return [
+                self.enrich_bytes(image_bytes, result)
+                for (_filename, image_bytes), result in zip(image_payloads, results, strict=True)
+            ]
+
+        payloads = [
+            (
+                _SYSTEM_PROMPT,
+                _build_user_prompt(self._build_payload(result)),
+                image_bytes,
+                filename,
+            )
+            for (filename, image_bytes), result in zip(image_payloads, results, strict=True)
+        ]
+        enriched_results = self._invoke_batch_bytes_enrichment(payloads)
+        if len(enriched_results) != len(results):
+            raise RuntimeError(
+                "VLM in-memory batch enrichment returned a different number of results than inputs. "
                 f"expected={len(results)}, actual={len(enriched_results)}"
             )
         for result, enriched in zip(results, enriched_results, strict=True):
@@ -179,6 +232,86 @@ def _build_langchain_batch_enrichment_invoker(
     return invoke_batch_enrichment
 
 
+def _build_langchain_bytes_enrichment_invoker(
+    settings: VLSettings,
+    options: ImageEnrichmentOptions,
+) -> Callable[[str, str, bytes, str], EnrichedImageResult]:
+    client = init_chat_model(
+        model_provider="openai",
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        model=settings.model_name,
+        temperature=0,
+    ).with_structured_output(
+        EnrichedImageResult,
+        method="function_calling",
+        include_raw=True,
+    )
+
+    def invoke_enrichment(
+        system_prompt: str,
+        user_prompt: str,
+        image_bytes: bytes,
+        filename: str,
+    ) -> EnrichedImageResult:
+        response = client.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(
+                    content=_build_image_bytes_message_content(
+                        user_prompt,
+                        image_bytes,
+                        filename=filename,
+                        options=options,
+                    )
+                ),
+            ]
+        )
+        return _parse_enrichment_response(response, settings)
+
+    return invoke_enrichment
+
+
+def _build_langchain_batch_bytes_enrichment_invoker(
+    settings: VLSettings,
+    options: ImageEnrichmentOptions,
+) -> Callable[[list[tuple[str, str, bytes, str]]], list[EnrichedImageResult]]:
+    client = init_chat_model(
+        model_provider="openai",
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        model=settings.model_name,
+        temperature=0,
+    ).with_structured_output(
+        EnrichedImageResult,
+        method="function_calling",
+        include_raw=True,
+    )
+
+    def invoke_batch_enrichment(
+        prompt_payloads: list[tuple[str, str, bytes, str]],
+    ) -> list[EnrichedImageResult]:
+        responses = client.batch(
+            [
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(
+                        content=_build_image_bytes_message_content(
+                            user_prompt,
+                            image_bytes,
+                            filename=filename,
+                            options=options,
+                        )
+                    ),
+                ]
+                for system_prompt, user_prompt, image_bytes, filename in prompt_payloads
+            ]
+        )
+        return [_parse_enrichment_response(response, settings) for response in responses]
+
+    return invoke_batch_enrichment
+
+
 def _build_user_prompt(payload: dict[str, Any]) -> str:
     instructions = {
         "rules": [
@@ -211,8 +344,38 @@ def _build_image_message_content(
     ]
 
 
+def _build_image_bytes_message_content(
+    user_prompt: str,
+    image_bytes: bytes,
+    *,
+    filename: str,
+    options: ImageEnrichmentOptions,
+) -> list[dict[str, Any]]:
+    return [
+        {"type": "text", "text": user_prompt},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": _image_bytes_data_uri(image_bytes, filename=filename, options=options),
+            },
+        },
+    ]
+
+
 def _image_data_uri(image_path: Path, options: ImageEnrichmentOptions) -> str:
     payload = _prepare_vlm_image_payload(image_path, options)
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _image_bytes_data_uri(
+    image_bytes: bytes,
+    *,
+    filename: str,
+    options: ImageEnrichmentOptions,
+) -> str:
+    del filename
+    payload = _prepare_vlm_image_bytes_payload(image_bytes, options)
     encoded = base64.b64encode(payload).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
 
@@ -233,6 +396,36 @@ def _prepare_vlm_image_payload(
             image = image.copy()
         else:
             image = image.copy()
+
+    resized = _resize_for_vlm(image, max_long_edge=options.max_long_edge)
+    return _encode_vlm_image(resized, jpeg_quality=options.jpeg_quality)
+
+
+def _prepare_vlm_image_bytes_payload(
+    image_bytes: bytes,
+    options: ImageEnrichmentOptions,
+) -> bytes:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return image_bytes
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Palette images with Transparency expressed in bytes should be converted to RGBA images",
+            category=UserWarning,
+        )
+        source_image = Image.open(io.BytesIO(image_bytes))
+        if source_image.mode == "P" and "transparency" in source_image.info:
+            source_image = source_image.convert("RGBA")
+        image = ImageOps.exif_transpose(source_image)
+        if getattr(image, "is_animated", False):
+            image.seek(0)
+            image = image.copy()
+        else:
+            image = image.copy()
+        source_image.close()
 
     resized = _resize_for_vlm(image, max_long_edge=options.max_long_edge)
     return _encode_vlm_image(resized, jpeg_quality=options.jpeg_quality)

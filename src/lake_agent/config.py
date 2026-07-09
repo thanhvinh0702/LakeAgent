@@ -124,11 +124,29 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True, slots=True)
 class OCRSettings:
-    model_url: str
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+    request_timeout_seconds: float = 120.0
 
     @classmethod
     def from_env(cls) -> "OCRSettings":
-        return cls(model_url=_required_env("OCR_MODEL_URL"))
+        api_key = _first_env("OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: OPENAI_API_KEY or API_KEY"
+            )
+
+        model_name = _first_env("OCR_MODEL_NAME")
+        if not model_name:
+            raise ValueError("Missing required environment variable: OCR_MODEL_NAME")
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("OCR_BASE_URL", "OPENAI_BASE_URL", "BASE_URL"),
+            request_timeout_seconds=_optional_float_env("OCR_REQUEST_TIMEOUT_SECONDS") or 120.0,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,8 +174,117 @@ class VLSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ASRSettings:
+    api_key: str
+    model_name: str
+    base_url: str
+    fallback_model_name: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "ASRSettings":
+        api_key = _first_env("ASR_API_KEY", "OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: ASR_API_KEY or OPENROUTER_API_KEY"
+            )
+
+        model_name = _first_env("ASR_MODEL_NAME")
+        if not model_name:
+            raise ValueError("Missing required environment variable: ASR_MODEL_NAME")
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env("ASR_BASE_URL", "OPENROUTER_BASE_URL")
+            or "https://openrouter.ai/api/v1",
+            fallback_model_name=_first_env("ASR_FALLBACK_MODEL_NAME"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VideoVLSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "VideoVLSettings":
+        api_key = _first_env("VIDEO_VL_API_KEY", "OPENAI_API_KEY", "API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: "
+                "VIDEO_VL_API_KEY, OPENAI_API_KEY, or API_KEY"
+            )
+
+        model_name = _first_env(
+            "VIDEO_VL_MODEL_NAME",
+            "VL_MODEL_NAME",
+            "OPENAI_MODEL_NAME",
+            "MODEL_NAME",
+        )
+        if not model_name:
+            raise ValueError(
+                "Missing required environment variable: "
+                "VIDEO_VL_MODEL_NAME, VL_MODEL_NAME, OPENAI_MODEL_NAME, or MODEL_NAME"
+            )
+
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env(
+                "VIDEO_VL_BASE_URL",
+                "VL_BASE_URL",
+                "OPENAI_BASE_URL",
+                "BASE_URL",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EpubVLSettings:
+    api_key: str
+    model_name: str
+    base_url: str | None = None
+
+    @classmethod
+    def from_env(cls) -> "EpubVLSettings":
+        api_key = _first_env(
+            "EPUB_VL_API_KEY",
+            "VIDEO_VL_API_KEY",
+            "OPENAI_API_KEY",
+            "API_KEY",
+        )
+        if not api_key:
+            raise ValueError(
+                "Missing required environment variable: "
+                "EPUB_VL_API_KEY, VIDEO_VL_API_KEY, OPENAI_API_KEY, or API_KEY"
+            )
+
+        model_name = _first_env("EPUB_VL_MODEL_NAME") or "openrouter/qwen/qwen3-vl-32b-instruct"
+        return cls(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=_first_env(
+                "EPUB_VL_BASE_URL",
+                "VIDEO_VL_BASE_URL",
+                "VL_BASE_URL",
+                "OPENAI_BASE_URL",
+                "BASE_URL",
+            )
+            or "http://localhost:20128/v1",
+        )
+
+
 def _optional_int_env(*names: str) -> int | None:
     value = _first_env(*names)
     if value is None:
         return None
     return int(value)
+
+
+def _optional_float_env(*names: str) -> float | None:
+    value = _first_env(*names)
+    if value is None:
+        return None
+    return float(value)

@@ -14,6 +14,15 @@ from lake_agent.domain.indexing_models.document import (
 from lake_agent.domain.indexing_models.document_enrichment import (
     EnrichedDocumentResult,
 )
+from lake_agent.domain.indexing_models.epub import (
+    EpubEmbeddedImage,
+    EpubFormat,
+    EpubIndexResult,
+    EpubSection,
+)
+from lake_agent.domain.indexing_models.epub_enrichment import (
+    EnrichedEpubResult,
+)
 from lake_agent.domain.indexing_models.image import (
     ImageFormat,
     ImageIndexResult,
@@ -98,6 +107,11 @@ __all__ = [
     "EnrichedDatabaseResult",
     "EnrichedDatabaseTableProfile",
     "EnrichedDocumentResult",
+    "EpubEmbeddedImage",
+    "EpubFormat",
+    "EpubIndexResult",
+    "EpubSection",
+    "EnrichedEpubResult",
     "EnrichedImageResult",
     "EnrichedSlideshowResult",
     "EnrichedSqlScriptResult",

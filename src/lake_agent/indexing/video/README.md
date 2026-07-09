@@ -1,0 +1,86 @@
+# Video Indexing
+
+Video indexing extracts the audio track for ASR and optionally captions sampled
+frames with a VLM. It does not run OCR.
+
+## Environment
+
+Audio transcription uses the same ASR settings as audio indexing:
+
+```env
+OPENROUTER_API_KEY=...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+ASR_MODEL_NAME=microsoft/mai-transcribe-1.5
+ASR_FALLBACK_MODEL_NAME=mistralai/voxtral-mini-transcribe
+```
+
+Optional VLM frame captioning uses OpenAI-compatible chat settings through
+LangChain. It can go through 9Router via `OPENAI_*`, or directly through a
+provider by setting `VIDEO_VL_*`.
+
+`VIDEO_VL_API_KEY` falls back to `OPENAI_API_KEY`, then `API_KEY`.
+`VIDEO_VL_BASE_URL` falls back to `VL_BASE_URL`, then `OPENAI_BASE_URL`, then
+`BASE_URL`.
+`VIDEO_VL_MODEL_NAME` falls back to `VL_MODEL_NAME`, then `OPENAI_MODEL_NAME`,
+then `MODEL_NAME`.
+
+Frames are sampled evenly from the video duration, up to `VIDEO_MAX_FRAMES`.
+
+```env
+VIDEO_VL_API_KEY=
+VIDEO_VL_BASE_URL=
+VIDEO_MAX_FRAMES=8
+VIDEO_FRAME_LONG_EDGE=768
+VIDEO_VL_MODEL_NAME=
+```
+
+For the current 9Router setup, a typical VLM config is:
+
+```env
+OPENAI_API_KEY=<9router-key-or-local-placeholder>
+OPENAI_BASE_URL=http://localhost:20128/v1
+VIDEO_VL_MODEL_NAME=openrouter/openai/gpt-4o-mini
+```
+
+For direct OpenRouter VLM calls, use:
+
+```env
+VIDEO_VL_API_KEY=<openrouter-key>
+VIDEO_VL_BASE_URL=https://openrouter.ai/api/v1
+VIDEO_VL_MODEL_NAME=openai/gpt-4o-mini
+```
+
+`ffmpeg` and `ffprobe` must be available on `PATH`.
+
+## Run
+
+Index videos with audio ASR only:
+
+```powershell
+lake-index-video --no-vector --force
+```
+
+Caption sampled frames with VLM, capped to one frame per video for a cheap smoke test:
+
+```powershell
+lake-index-video --no-vector --vlm --max-frames 1 --force
+```
+
+Change frame sampling:
+
+```powershell
+lake-index-video --vlm --max-frames 8
+```
+
+Skip audio and only caption sampled frames:
+
+```powershell
+lake-index-video --no-audio --vlm --max-frames 3
+```
+
+## Cost Controls
+
+By default, VLM is off. Frame captioning samples up to `VIDEO_MAX_FRAMES`
+evenly spaced frames across the video duration. `VIDEO_FRAME_LONG_EDGE` defaults
+to 768 to keep image payloads small. Re-running without `--force` skips unchanged
+files by `relative_path`, `size_bytes`, and `last_modified`.

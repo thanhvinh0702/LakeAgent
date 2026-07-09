@@ -41,6 +41,7 @@ _EXTENSIONS: dict[str, FormatInfo] = {
         Modality.DOCUMENT,
     ),
     ".rtf": FormatInfo("application/rtf", "rtf", Modality.DOCUMENT),
+    ".epub": FormatInfo("application/epub+zip", "epub", Modality.EPUB),
     ".ppt": FormatInfo("application/vnd.ms-powerpoint", "ppt", Modality.SLIDE_SHOW),
     ".pptx": FormatInfo(
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -100,6 +101,7 @@ _CANONICAL_EXTENSIONS: dict[str, str] = {
     ".doc": ".doc",
     ".docx": ".docx",
     ".rtf": ".rtf",
+    ".epub": ".epub",
     ".ppt": ".ppt",
     ".pptx": ".pptx",
     ".txt": ".txt",
@@ -211,7 +213,7 @@ def _identify_signature(sample: bytes, extension: str) -> FormatInfo | None:
     if sample.startswith(b"SQLite format 3\x00"):
         return _EXTENSIONS[".sqlite"]
     if sample.startswith(b"PK\x03\x04"):
-        if extension in {".xlsx", ".docx", ".pptx"}:
+        if extension in {".xlsx", ".docx", ".pptx", ".epub"}:
             return _EXTENSIONS[extension]
         return _EXTENSIONS[".zip"]
     if sample.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
