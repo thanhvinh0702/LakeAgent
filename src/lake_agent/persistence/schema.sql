@@ -209,6 +209,76 @@ CREATE INDEX IF NOT EXISTS idx_audio_sections_chunk_index
     ON audio_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS video_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    duration_seconds DOUBLE PRECISION,
+    width INTEGER,
+    height INTEGER,
+    fps DOUBLE PRECISION,
+    video_codec TEXT,
+    audio_codec TEXT,
+    has_audio BOOLEAN NOT NULL DEFAULT FALSE,
+    sampled_frame_count INTEGER NOT NULL DEFAULT 0,
+    asr_model_name TEXT,
+    asr_cost_usd DOUBLE PRECISION,
+    asr_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+    vl_model_name TEXT,
+    parser_version TEXT NOT NULL DEFAULT 'video_audio_frame_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_files_relative_path
+    ON video_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_video_files_format
+    ON video_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_video_files_status
+    ON video_files(status);
+
+
+CREATE TABLE IF NOT EXISTS video_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES video_files(source_id) ON DELETE CASCADE,
+    section_type TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    timestamp_seconds DOUBLE PRECISION,
+    start_seconds DOUBLE PRECISION,
+    end_seconds DOUBLE PRECISION,
+    frame_index INTEGER,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_sections_source_id
+    ON video_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_video_sections_type
+    ON video_sections(section_type);
+
+CREATE INDEX IF NOT EXISTS idx_video_sections_chunk_index
+    ON video_sections(chunk_index);
+
+
 CREATE TABLE IF NOT EXISTS document_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,

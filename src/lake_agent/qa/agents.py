@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ModalityRouting(BaseModel):
     modalities: list[str] = Field(
-        description="List of target modalities to query. Options: 'text', 'tabular', 'image', 'document', 'audio', 'database'."
+        description="List of target modalities to query. Options: 'text', 'tabular', 'image', 'document', 'audio', 'video', 'database'."
     )
     queries: dict[str, str] = Field(
         description="Modality-specific search queries generated for each routed modality."
@@ -59,6 +59,7 @@ class SupervisorAgent(BaseAgent):
             "- 'image': png, jpg, jpeg files.\n"
             "- 'document': pdf manuals or PDF documents.\n"
             "- 'audio': mp3, wav, m4a audio files.\n"
+            "- 'video': mp4, mkv, mov, avi, webm video files.\n"
             "- 'database': sqlite database files.\n\n"
             "For each routed modality, generate a specific search query designed to retrieve relevant files or context."
         )
@@ -90,6 +91,8 @@ class SupervisorAgent(BaseAgent):
                 modalities.append("document")
             if "audio" in lower_q or "m4a" in lower_q or "meeting" in lower_q or "workshop" in lower_q or "participants" in lower_q:
                 modalities.append("audio")
+            if "video" in lower_q or "mp4" in lower_q or "mkv" in lower_q or "frame" in lower_q:
+                modalities.append("video")
             
             if not modalities:
                 modalities = ["text", "tabular", "document"]

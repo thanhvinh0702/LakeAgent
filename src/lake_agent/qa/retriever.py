@@ -144,6 +144,22 @@ class CrossRetriever:
                     if r["start_seconds"] is not None and r["end_seconds"] is not None:
                         timing = f"[{r['start_seconds']:.1f}s-{r['end_seconds']:.1f}s]\n"
                     results.append({"filename": r["filename"], "content": f"{timing}{r['content']}"})
+
+            elif modality == "video":
+                rows = conn.execute(
+                    "SELECT filename, section_type, content, timestamp_seconds, start_seconds, end_seconds "
+                    "FROM video_sections s "
+                    "JOIN video_files f ON s.source_id = f.source_id "
+                    "WHERE s.search_text ILIKE %s OR s.content ILIKE %s LIMIT 5",
+                    (q_term, q_term)
+                ).fetchall()
+                for r in rows:
+                    timing = ""
+                    if r["timestamp_seconds"] is not None:
+                        timing = f"[{r['timestamp_seconds']:.1f}s {r['section_type']}]\n"
+                    elif r["start_seconds"] is not None and r["end_seconds"] is not None:
+                        timing = f"[{r['start_seconds']:.1f}s-{r['end_seconds']:.1f}s {r['section_type']}]\n"
+                    results.append({"filename": r["filename"], "content": f"{timing}{r['content']}"})
                 
         return results
 
@@ -176,6 +192,7 @@ class CrossRetriever:
             "image": [".png", ".jpg", ".jpeg", ".webp"],
             "document": [".pdf", ".docx", ".pptx", ".ppt"],
             "audio": [".m4a", ".mp3", ".wav", ".flac", ".ogg"],
+            "video": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
             "database": [".db", ".sqlite", ".sqlite3"]
         }
         
@@ -209,6 +226,8 @@ class CrossRetriever:
                 content = self._describe_image_via_vlm(f)
             elif ext in [".m4a", ".mp3", ".wav"]:
                 content = self._read_audio_transcript_fallback(f)
+            elif ext in [".mp4", ".mkv", ".mov", ".avi", ".webm"]:
+                content = f"Video file: {f.name}. Run lake-index-video for transcript and frame captions."
                 
             if content:
                 results.append({

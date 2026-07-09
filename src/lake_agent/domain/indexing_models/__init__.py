@@ -55,6 +55,11 @@ from lake_agent.domain.indexing_models.web import (
     WebIndexResult,
     WebSection,
 )
+from lake_agent.domain.indexing_models.video import (
+    VideoFormat,
+    VideoIndexResult,
+    VideoSection,
+)
 from lake_agent.domain.indexing_models.web_enrichment import (
     EnrichedWebResult,
 )
@@ -117,6 +122,9 @@ __all__ = [
     "TextFormat",
     "TextIndexResult",
     "TextSection",
+    "VideoFormat",
+    "VideoIndexResult",
+    "VideoSection",
     "WebFormat",
     "WebIndexResult",
     "WebSection",
