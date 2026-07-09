@@ -16,6 +16,11 @@ from lake_agent.domain.indexing_models.image import (
 from lake_agent.domain.indexing_models.image_enrichment import (
     EnrichedImageResult,
 )
+from lake_agent.domain.indexing_models.json import (
+    JsonFormat,
+    JsonIndexResult,
+    JsonSection,
+)
 from lake_agent.domain.indexing_models.tabular import (
     ColumnProfile,
     ScalarType,
@@ -45,6 +50,9 @@ __all__ = [
     "ImageFormat",
     "ImageIndexResult",
     "ImageSection",
+    "JsonFormat",
+    "JsonIndexResult",
+    "JsonSection",
     "EnrichedTableProfile",
     "EnrichedImageResult",
     "EnrichedTextResult",

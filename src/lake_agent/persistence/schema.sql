@@ -201,6 +201,62 @@ CREATE INDEX IF NOT EXISTS idx_document_sections_chunk_index
     ON document_sections(chunk_index);
 
 
+CREATE TABLE IF NOT EXISTS json_files (
+    source_id TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    file_format TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    last_modified TIMESTAMPTZ,
+    parser_version TEXT NOT NULL DEFAULT 'flattened_json_v1',
+    parse_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    top_level_type TEXT,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    max_depth INTEGER NOT NULL DEFAULT 0,
+    file_summary TEXT,
+    file_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    file_search_text TEXT,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    error_message TEXT,
+    first_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    is_present BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_json_files_relative_path
+    ON json_files(relative_path);
+
+CREATE INDEX IF NOT EXISTS idx_json_files_format
+    ON json_files(file_format);
+
+CREATE INDEX IF NOT EXISTS idx_json_files_status
+    ON json_files(status);
+
+
+CREATE TABLE IF NOT EXISTS json_sections (
+    section_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES json_files(source_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    path_start TEXT,
+    path_end TEXT,
+    entry_count INTEGER NOT NULL DEFAULT 0,
+    content TEXT NOT NULL,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    search_text TEXT,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_json_sections_source_id
+    ON json_sections(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_json_sections_chunk_index
+    ON json_sections(chunk_index);
+
+
 CREATE TABLE IF NOT EXISTS image_files (
     source_id TEXT PRIMARY KEY,
     relative_path TEXT NOT NULL UNIQUE,
