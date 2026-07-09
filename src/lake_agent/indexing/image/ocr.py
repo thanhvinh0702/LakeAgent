@@ -45,9 +45,11 @@ class OCRMarkdownExtractor:
     def __init__(
         self,
         client: Any,
+        handle_file: Any | None = None,
         options: OCRExtractionOptions | None = None,
     ) -> None:
         self._client = client
+        self._handle_file = handle_file
         self._options = options or OCRExtractionOptions()
 
     @classmethod
@@ -61,6 +63,20 @@ class OCRMarkdownExtractor:
 
     def extract_sections(self, image_path: str | Path, *, source_id: str) -> list[ImageSection]:
         markdown = self._invoke_ocr_batch([Path(image_path)])[0]
+        return _build_sections_from_markdown(
+            markdown,
+            source_id=source_id,
+            options=self._options,
+        )
+
+    def extract_sections_from_bytes(
+        self,
+        image_bytes: bytes,
+        *,
+        source_id: str,
+        filename: str = "image.png",
+    ) -> list[ImageSection]:
+        markdown = self._invoke_ocr_bytes_batch([(filename, image_bytes)])[0]
         return _build_sections_from_markdown(
             markdown,
             source_id=source_id,
@@ -88,11 +104,52 @@ class OCRMarkdownExtractor:
             for source_id, markdown in zip(source_ids, markdown_results, strict=True)
         }
 
+    def extract_sections_bytes_batch(
+        self,
+        image_payloads: list[tuple[str, bytes]],
+        *,
+        source_ids: list[str],
+    ) -> dict[str, list[ImageSection]]:
+        if len(image_payloads) != len(source_ids):
+            raise ValueError("image_payloads and source_ids must have the same length")
+        if not image_payloads:
+            return {}
+
+        markdown_results = self._invoke_ocr_bytes_batch(image_payloads)
+        return {
+            source_id: _build_sections_from_markdown(
+                markdown,
+                source_id=source_id,
+                options=self._options,
+            )
+            for source_id, markdown in zip(source_ids, markdown_results, strict=True)
+        }
+
     @property
     def batch_size(self) -> int:
         return self._options.batch_size
 
     def _invoke_ocr_batch(self, image_paths: list[Path]) -> list[str]:
+        legacy_predict = getattr(self._client, "predict", None)
+        if callable(legacy_predict):
+            try:
+                files = [
+                    self._handle_file(path) if self._handle_file is not None else path
+                    for path in image_paths
+                ]
+                responses = legacy_predict(files, api_name="/predict")
+            except TypeError:
+                responses = legacy_predict(files)
+            except Exception as exc:
+                batch_preview = ", ".join(path.name for path in image_paths[:3])
+                if len(image_paths) > 3:
+                    batch_preview += ", ..."
+                raise RuntimeError(
+                    f"OCR request failed for batch of {len(image_paths)} image(s) "
+                    f"[{batch_preview}]: {exc}"
+                ) from exc
+            return [str(response).strip() for response in responses]
+
         try:
             responses = self._client.batch(
                 [
@@ -114,6 +171,33 @@ class OCRMarkdownExtractor:
                 batch_preview += ", ..."
             raise RuntimeError(
                 f"OCR request failed for batch of {len(image_paths)} image(s) "
+                f"[{batch_preview}]: {exc}"
+            ) from exc
+        return [_extract_text_response(response).strip() for response in responses]
+
+    def _invoke_ocr_bytes_batch(self, image_payloads: list[tuple[str, bytes]]) -> list[str]:
+        try:
+            responses = self._client.batch(
+                [
+                    [
+                        SystemMessage(content=_OCR_SYSTEM_PROMPT),
+                        HumanMessage(
+                            content=_build_ocr_bytes_message_content(
+                                image_bytes,
+                                filename=filename,
+                                options=self._options,
+                            )
+                        ),
+                    ]
+                    for filename, image_bytes in image_payloads
+                ]
+            )
+        except Exception as exc:
+            batch_preview = ", ".join(filename for filename, _ in image_payloads[:3])
+            if len(image_payloads) > 3:
+                batch_preview += ", ..."
+            raise RuntimeError(
+                f"OCR request failed for in-memory batch of {len(image_payloads)} image(s) "
                 f"[{batch_preview}]: {exc}"
             ) from exc
         return [_extract_text_response(response).strip() for response in responses]
@@ -182,8 +266,34 @@ def _build_ocr_message_content(
     ]
 
 
+def _build_ocr_bytes_message_content(
+    image_bytes: bytes,
+    *,
+    filename: str,
+    options: OCRExtractionOptions,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "text",
+            "text": f"Extract all readable text from this image ({filename}). Return only the extracted text.",
+        },
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": _image_bytes_data_uri(image_bytes, options),
+            },
+        },
+    ]
+
+
 def _image_data_uri(image_path: Path, options: OCRExtractionOptions) -> str:
     payload = _prepare_image_payload(image_path, options)
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _image_bytes_data_uri(image_bytes: bytes, options: OCRExtractionOptions) -> str:
+    payload = _prepare_image_bytes_payload(image_bytes, options)
     encoded = base64.b64encode(payload).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
 
@@ -204,6 +314,36 @@ def _prepare_image_payload(
             category=UserWarning,
         )
         source_image = Image.open(image_path)
+        if source_image.mode == "P" and "transparency" in source_image.info:
+            source_image = source_image.convert("RGBA")
+        image = ImageOps.exif_transpose(source_image)
+        if getattr(image, "is_animated", False):
+            image.seek(0)
+            image = image.copy()
+        else:
+            image = image.copy()
+        source_image.close()
+
+    resized = _resize_for_ocr(image, max_long_edge=options.max_long_edge)
+    return _encode_ocr_image(resized, jpeg_quality=options.jpeg_quality)
+
+
+def _prepare_image_bytes_payload(
+    image_bytes: bytes,
+    options: OCRExtractionOptions,
+) -> bytes:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        return image_bytes
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Palette images with Transparency expressed in bytes should be converted to RGBA images",
+            category=UserWarning,
+        )
+        source_image = Image.open(io.BytesIO(image_bytes))
         if source_image.mode == "P" and "transparency" in source_image.info:
             source_image = source_image.convert("RGBA")
         image = ImageOps.exif_transpose(source_image)

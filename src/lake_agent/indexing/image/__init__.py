@@ -17,6 +17,10 @@ from lake_agent.indexing.image.vlm import (
     ImageEnrichmentOptions,
     ImageVLMEnricher,
 )
+from lake_agent.indexing.image.glb_rendering import (
+    render_glb_to_6_image_results,
+    render_glb_to_6_views,
+)
 from lake_agent.indexing.image.vector_store import (
     add_image_result,
     add_image_results,
@@ -50,4 +54,6 @@ __all__ = [
     "build_image_documents",
     "build_openai_embeddings",
     "build_pgvector_store",
+    "render_glb_to_6_image_results",
+    "render_glb_to_6_views",
 ]
