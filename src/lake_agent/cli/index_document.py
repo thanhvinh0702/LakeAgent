@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ocr-batch-size",
         type=int,
-        default=3,
+        default=10,
         help="Number of extracted document images to send in each OCR batch",
     )
     parser.add_argument(
@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vlm-batch-size",
         type=int,
-        default=3,
+        default=10,
         help="Number of extracted document images to send in each VLM batch",
     )
     return parser
