@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -11,8 +12,13 @@ from lake_agent.config import EmbeddingSettings, LocalSettings, PostgresSettings
 from lake_agent.indexing.tabular.vector_store import build_pgvector_store
 from lake_agent.persistence.database import PostgresDatabase
 
+_DOCUMENT_RETRIEVAL_EMBEDDING_DIMENSIONS = 1024
+_EPUB_RETRIEVAL_EMBEDDING_DIMENSIONS = 1024
+
 ModalityName = Literal[
     "tabular",
+    "sql_script",
+    "database",
     "text",
     "web",
     "document",
@@ -27,6 +33,8 @@ ModalityName = Literal[
 @dataclass(frozen=True, slots=True)
 class RetrievalTableNames:
     tabular: str = "tabular_index"
+    sql_script: str = "sql_script_index"
+    database: str = "database_index"
     text: str = "text_index"
     web: str = "web_index"
     document: str = "document_index"
@@ -89,53 +97,76 @@ class IndexedDataRetriever:
         table_names = table_names or RetrievalTableNames()
         postgres_settings = postgres_settings or PostgresSettings.from_env()
         local_settings = local_settings or LocalSettings.from_env()
+        resolved_embedding_settings = embedding_settings or EmbeddingSettings.from_env()
+        document_embedding_settings = EmbeddingSettings(
+            api_key=resolved_embedding_settings.api_key,
+            model_name=resolved_embedding_settings.model_name,
+            base_url=resolved_embedding_settings.base_url,
+            dimensions=_DOCUMENT_RETRIEVAL_EMBEDDING_DIMENSIONS,
+        )
+        epub_embedding_settings = EmbeddingSettings(
+            api_key=resolved_embedding_settings.api_key,
+            model_name=resolved_embedding_settings.model_name,
+            base_url=resolved_embedding_settings.base_url,
+            dimensions=_EPUB_RETRIEVAL_EMBEDDING_DIMENSIONS,
+        )
 
         database = PostgresDatabase(postgres_settings.dsn)
         connection = database.connect()
         vector_stores: dict[ModalityName, Any] = {
             "tabular": build_pgvector_store(
                 table_names.tabular,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
+                postgres_settings=postgres_settings,
+            ),
+            "sql_script": build_pgvector_store(
+                table_names.sql_script,
+                embedding_settings=resolved_embedding_settings,
+                postgres_settings=postgres_settings,
+            ),
+            "database": build_pgvector_store(
+                table_names.database,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "text": build_pgvector_store(
                 table_names.text,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "web": build_pgvector_store(
                 table_names.web,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "document": build_pgvector_store(
                 table_names.document,
-                embedding_settings=embedding_settings,
+                embedding_settings=document_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "slideshow": build_pgvector_store(
                 table_names.slideshow,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "image": build_pgvector_store(
                 table_names.image,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "epub": build_pgvector_store(
                 table_names.epub,
-                embedding_settings=embedding_settings,
+                embedding_settings=epub_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "audio": build_pgvector_store(
                 table_names.audio,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
             "video": build_pgvector_store(
                 table_names.video,
-                embedding_settings=embedding_settings,
+                embedding_settings=resolved_embedding_settings,
                 postgres_settings=postgres_settings,
             ),
         }
@@ -152,6 +183,12 @@ class IndexedDataRetriever:
 
     def query_tabular(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("tabular", query, limit, offset)
+
+    def query_sql_script(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
+        return self._query_modality("sql_script", query, limit, offset)
+
+    def query_database(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
+        return self._query_modality("database", query, limit, offset)
 
     def query_text(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         return self._query_modality("text", query, limit, offset)
@@ -180,8 +217,10 @@ class IndexedDataRetriever:
     def query_all(self, query: str, limit: int = 5, offset: int = 0) -> dict[str, Any]:
         combined: list[dict[str, Any]] = []
         skipped_modalities: list[dict[str, str]] = []
-        for modality in (
+        modalities: tuple[ModalityName, ...] = (
             "tabular",
+            "sql_script",
+            "database",
             "text",
             "web",
             "document",
@@ -190,7 +229,10 @@ class IndexedDataRetriever:
             "epub",
             "audio",
             "video",
-        ):
+        )
+
+        eligible_modalities: list[ModalityName] = []
+        for modality in modalities:
             if modality not in self._vector_stores:
                 skipped_modalities.append(
                     {
@@ -199,19 +241,29 @@ class IndexedDataRetriever:
                     }
                 )
                 continue
-            try:
-                modality_results = self._query_modality(modality, query, limit + offset, 0)["results"]
-            except Exception as exc:
-                if not _is_missing_vector_table_error(exc):
-                    raise
-                skipped_modalities.append(
-                    {
-                        "modality": modality,
-                        "reason": "vector_table_missing",
-                    }
-                )
-                continue
-            combined.extend(modality_results)
+
+            eligible_modalities.append(modality)
+
+        with ThreadPoolExecutor(max_workers=len(eligible_modalities) or 1) as executor:
+            future_to_modality = {
+                executor.submit(self._query_modality, modality, query, limit + offset, 0): modality
+                for modality in eligible_modalities
+            }
+            for future in as_completed(future_to_modality):
+                modality = future_to_modality[future]
+                try:
+                    modality_results = future.result()["results"]
+                except Exception as exc:
+                    if not _is_missing_vector_table_error(exc):
+                        raise
+                    skipped_modalities.append(
+                        {
+                            "modality": modality,
+                            "reason": "vector_table_missing",
+                        }
+                    )
+                    continue
+                combined.extend(modality_results)
         combined.sort(key=lambda item: item["score"])
         paged_results = combined[offset : offset + limit]
         response = {
@@ -232,6 +284,8 @@ class IndexedDataRetriever:
         for candidate in candidates:
             for modality in (
                 "tabular",
+                "sql_script",
+                "database",
                 "text",
                 "web",
                 "document",
@@ -286,6 +340,20 @@ class IndexedDataRetriever:
                 return self._format_tabular_file_hit(row, score)
             row = self._load_tabular_table(str(metadata["table_id"]))
             return self._format_tabular_table_hit(row, score)
+
+        if modality == "sql_script":
+            if record_type == "file":
+                row = self._load_sql_script_file(str(metadata["source_id"]))
+                return self._format_sql_script_file_hit(row, score)
+            row = self._load_sql_script_section(str(metadata["section_id"]))
+            return self._format_sql_script_section_hit(row, score)
+
+        if modality == "database":
+            if record_type == "file":
+                row = self._load_database_file(str(metadata["source_id"]))
+                return self._format_database_file_hit(row, score)
+            row = self._load_database_table(str(metadata["table_id"]))
+            return self._format_database_table_hit(row, score)
 
         if modality == "text":
             if record_type == "file":
@@ -389,6 +457,66 @@ class IndexedDataRetriever:
         ).fetchone()
         if row is None:
             raise ValueError(f"Missing text file row for source_id={source_id}")
+        return row
+
+    def _load_sql_script_file(self, source_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM sql_script_files
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing SQL script file row for source_id={source_id}")
+        return row
+
+    def _load_sql_script_section(self, section_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT s.section_id, s.source_id, f.relative_path, f.filename, f.file_format,
+                   s.chunk_index, s.heading, s.content, s.search_text,
+                   s.char_count, s.warnings
+            FROM sql_script_sections AS s
+            JOIN sql_script_files AS f ON f.source_id = s.source_id
+            WHERE s.section_id = %s
+            """,
+            (section_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing SQL script section row for section_id={section_id}")
+        return row
+
+    def _load_database_file(self, source_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM database_files
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing database file row for source_id={source_id}")
+        return row
+
+    def _load_database_table(self, table_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT t.table_id, t.source_id, f.relative_path, f.filename, f.file_format,
+                   t.table_name, t.row_count, t.column_count, t.columns_json,
+                   t.preview_rows, t.summary, t.keywords, t.warnings
+            FROM database_tables AS t
+            JOIN database_files AS f ON f.source_id = t.source_id
+            WHERE t.table_id = %s
+            """,
+            (table_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Missing database table row for table_id={table_id}")
         return row
 
     def _load_text_section(self, section_id: str) -> dict[str, Any]:
@@ -649,6 +777,28 @@ class IndexedDataRetriever:
             (relative_path,),
         ).fetchone()
 
+    def _load_sql_script_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM sql_script_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
+    def _load_database_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
+        return self._connection.execute(
+            """
+            SELECT source_id, relative_path, filename, file_format, file_summary,
+                   file_keywords, parse_warnings
+            FROM database_files
+            WHERE relative_path = %s
+            """,
+            (relative_path,),
+        ).fetchone()
+
     def _load_document_file_by_path(self, relative_path: str) -> dict[str, Any] | None:
         return self._connection.execute(
             """
@@ -767,6 +917,55 @@ class IndexedDataRetriever:
             "file_path": row["relative_path"],
             "score": float(score),
             "content": row["file_summary"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_sql_script_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "sql_script",
+            "record_type": "file",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["file_summary"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_sql_script_section_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "sql_script",
+            "record_type": "section",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row.get("search_text") or row["content"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_database_file_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "database",
+            "record_type": "file",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["file_summary"],
+        }
+        self._attach_absolute_file_path(hit)
+        return hit
+
+    def _format_database_table_hit(self, row: dict[str, Any], score: float) -> dict[str, Any]:
+        hit = {
+            "modality": "database",
+            "record_type": "table",
+            "file_path": row["relative_path"],
+            "score": float(score),
+            "content": row["summary"],
+            "table_name": row["table_name"],
+            "columns": row["columns_json"],
+            "preview_rows": row["preview_rows"],
+            "row_count": row["row_count"],
+            "column_count": row["column_count"],
         }
         self._attach_absolute_file_path(hit)
         return hit
@@ -1016,6 +1215,8 @@ class IndexedDataRetriever:
         }
         if modality == "tabular":
             base["sheet_descriptions"] = row.get("workbook_sheet_descriptions", {})
+        if modality == "database":
+            base["table_count"] = self._count_database_tables(str(row["source_id"]))
         if modality == "image":
             base["width"] = row["width"]
             base["height"] = row["height"]
@@ -1053,6 +1254,17 @@ class IndexedDataRetriever:
             base["vl_model_name"] = row["vl_model_name"]
         self._attach_absolute_file_path(base)
         return base
+
+    def _count_database_tables(self, source_id: str) -> int:
+        row = self._connection.execute(
+            """
+            SELECT COUNT(*) AS table_count
+            FROM database_tables
+            WHERE source_id = %s
+            """,
+            (source_id,),
+        ).fetchone()
+        return int(row["table_count"]) if row is not None else 0
 
     def _normalize_file_path(self, file_path: str) -> str:
         candidate = Path(file_path).expanduser()
@@ -1112,6 +1324,24 @@ def build_langchain_retrieval_tools(
             description=(
                 "Search indexed tabular data such as CSV/XLS/XLSX/TSV files and return the "
                 "nearest file or table hits with true content, metadata, and score."
+            ),
+            args_schema=SearchArgs,
+        ),
+        StructuredTool.from_function(
+            func=_search(retriever.query_sql_script),
+            name="search_sql_script_data",
+            description=(
+                "Search indexed SQL script files and return the nearest file or section hits "
+                "with true content, metadata, and score."
+            ),
+            args_schema=SearchArgs,
+        ),
+        StructuredTool.from_function(
+            func=_search(retriever.query_database),
+            name="search_database_data",
+            description=(
+                "Search indexed SQLite/database files and return the nearest file or table hits "
+                "with true content, metadata, and score."
             ),
             args_schema=SearchArgs,
         ),

@@ -32,6 +32,7 @@ class ImageEnrichmentOptions:
     ocr_character_limit: int = 1200
     max_long_edge: int = 1536
     jpeg_quality: int = 85
+    min_side_pixels: int = 11
 
 
 class ImageVLMEnricher:
@@ -60,6 +61,10 @@ class ImageVLMEnricher:
 
     def enrich(self, image_path: str | Path, result: ImageIndexResult) -> ImageIndexResult:
         path = Path(image_path).expanduser().resolve()
+        too_small_reason = _tiny_image_reason(path, result, self._options)
+        if too_small_reason is not None:
+            result.parse_warnings.append(too_small_reason)
+            return result
         payload = self._build_payload(result)
         enriched = self._invoke_enrichment(_SYSTEM_PROMPT, _build_user_prompt(payload), path)
         _apply_enrichment(result, enriched, self._options)
@@ -80,22 +85,36 @@ class ImageVLMEnricher:
                 for image_path, result in zip(image_paths, results, strict=True)
             ]
 
+        eligible_inputs: list[tuple[Path, ImageIndexResult]] = []
+        eligible_indexes: list[int] = []
+        for index, (image_path, result) in enumerate(zip(image_paths, results, strict=True)):
+            path = Path(image_path).expanduser().resolve()
+            too_small_reason = _tiny_image_reason(path, result, self._options)
+            if too_small_reason is not None:
+                result.parse_warnings.append(too_small_reason)
+                continue
+            eligible_inputs.append((path, result))
+            eligible_indexes.append(index)
+
+        if not eligible_inputs:
+            return results
+
         payloads = [
             (
                 _SYSTEM_PROMPT,
                 _build_user_prompt(self._build_payload(result)),
-                Path(image_path).expanduser().resolve(),
+                path,
             )
-            for image_path, result in zip(image_paths, results, strict=True)
+            for path, result in eligible_inputs
         ]
         enriched_results = self._invoke_batch_enrichment(payloads)
-        if len(enriched_results) != len(results):
+        if len(enriched_results) != len(eligible_inputs):
             raise RuntimeError(
                 "VLM batch enrichment returned a different number of results than inputs. "
-                f"expected={len(results)}, actual={len(enriched_results)}"
+                f"expected={len(eligible_inputs)}, actual={len(enriched_results)}"
             )
-        for result, enriched in zip(results, enriched_results, strict=True):
-            _apply_enrichment(result, enriched, self._options)
+        for eligible_index, enriched in zip(eligible_indexes, enriched_results, strict=True):
+            _apply_enrichment(results[eligible_index], enriched, self._options)
         return results
 
     def _build_payload(self, result: ImageIndexResult) -> dict[str, Any]:
@@ -370,3 +389,34 @@ def _ocr_excerpt(result: ImageIndexResult, *, limit: int) -> str | None:
     if not text:
         return None
     return text[:limit]
+
+
+def _tiny_image_reason(
+    image_path: Path,
+    result: ImageIndexResult,
+    options: ImageEnrichmentOptions,
+) -> str | None:
+    width = result.width
+    height = result.height
+    if width <= 0 or height <= 0:
+        width, height = _probe_image_size(image_path)
+
+    if width < options.min_side_pixels or height < options.min_side_pixels:
+        return (
+            "VLM skipped image because it is too small for the model restrictions: "
+            f"{width}x{height}px (minimum side: {options.min_side_pixels}px)."
+        )
+    return None
+
+
+def _probe_image_size(image_path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+    except ImportError:
+        return 0, 0
+
+    try:
+        with Image.open(image_path) as image:
+            return int(image.width), int(image.height)
+    except Exception:
+        return 0, 0

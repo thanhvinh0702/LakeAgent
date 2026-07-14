@@ -1,0 +1,128 @@
+STT,Question
+1,"Từ năm 2024 đến năm 2026, những ngành nào của Trường Đại học Công nghệ, Đại học Quốc gia Hà Nội không thay đổi số lượng tuyển sinh?"
+2,"Giảng viên Nguyễn Văn Sơn tham gia giảng dạy bao nhiêu lớp Trường Đại học Công nghệ cho sinh viên trong học kỳ II năm học 2025-2026? Yêu cầu trả về duy nhất dưới dạng chữ số (ví dụ với đáp án là 12 lớp, cần trả về: 12)"
+3,"Trong học kỳ II năm học 2025-2026 của Trường Đại học Công nghệ, ngoại trừ các ngày cuối tuần (Thứ Bảy và Chủ Nhật), giảng viên Nguyễn Thu Trang không tham gia giảng dạy vào thứ mấy trong tuần? Yêu cầu trả về dưới dạng chữ số (ví dụ với đáp án là Thứ ba, cần trả về: 3) "
+4,"Hãy điền vào chỗ chấm câu văn phù hợp. 
+Trong video ghi lại buổi phỏng vấn với đài truyền hình Hà Nội, tiến sĩ Nguyễn Văn Sơn đã chia sẻ: ""Tôi tin rằng những cái đóng góp của mình sẽ được phát huy mạnh mẽ nhất khi tôi được đóng góp cho cội nguồn của mình, nơi mình được sinh ra lớn lên và được đào tạo. Tôi mong muốn có thể truyền được cảm hứng ...................... cho sự phát triển của đất nước và cho thủ đô."""
+5,"Theo bài viết ""Bartleby: The collaboration conundrum"" của magazine The Economist November 2023, nghiên cứu của Lingfei Wu từ Đại học Chicago đã chỉ ra mối tương quan như thế nào giữa quy mô của nhóm nghiên cứu khoa học và tính chất công việc của họ?"
+6,"According to the article ""Narendra Modi's southern push"" from The Economist March 2024, how many seats did the BJP win in the lower house (Lok Sabha) in regions OUTSIDE the 5 southern states in 2019? Please return a specific number (for example, if the answer is 120 seats, return: 120)."
+7,"Theo dự án làm về xe tự hành của thành viên Nguyễn Trung Hiếu, Vương Trường Giang của iSE - Trường Đại học Công nghệ, dự án định nghĩa nhóm thuộc tính chính dùng để khái quát môi trường hoạt động của xe tự hành là gì?"
+8,"Dự án LawTech của nhóm nghiên cứu iSE Trường Đại học Công nghệ do bao nhiêu thành viên đảm nhận, và hãy cho biết họ và tên đầy đủ của các thành viên."
+9,"Theo thông tin được cung cấp tại file ""analysis/image.jpg"", hãy trả lời câu hỏi sau: 
+""In which year the Mexican governments campaign against drugs traffickers is making 47 percent progress?""
+Yêu cầu trả về đáp án duy nhất dưới dạng chữ số"
+10,"According to the chart data from the Organisation for Economic Co-operation and Development (OECD), based on the line chart titled 'Country Programmable Aid (CPA) received, 2005 to 2012', which country received the higher Country Programmable aid, Jamaica or Tonga?"
+11,"What is the rating of the movie ""Dick Johnson Is Dead""?"
+12,How many titles released in 2020 are classified as Movies?
+13,"Nội dung chính của bộ phim ""Naruto Shippuden: The Movie"" là gì?"
+14,What is the unit price of the track “For Those About To Rock (We Salute You)”?
+15,Which artist released the album “Balls to the Wall”?
+16,"Among Canadian billing cities, which city generated the highest invoice total?"
+17,"Find the year with the highest suppression cost per acre of human-caused fire. What was the cost per acre, rounded to the nearest cent?"
+18,"On average, how many more annual fires are reported by NOAA compared to NIFC since 2000? Round to the nearest whole number."
+19,Did lighting or humans cause more fires impacting above 100 acres? Answer with **only** 'Lightning' or 'Human'. No explanation needed.
+20,"What percentage (to 3 decimal places) of water samples collected from Massachusetts beaches during the 2013 bathing season exceeded bacterial standards, leading to temporary closures?"
+21,What was the difference in bacterial exceedance rates (to 2 decimal places) for marine beach samples collected in 2023 between communities with more than 50% environmental justice (EJ) populations and those with less than 25% EJ populations?
+22,"Is it true (answer with True or False) that the exceedance rate of fresh water beaches follow the same trend as the rainfall, from 2020 to 2023 (inclusive)? (e.g., they both increase and decrease together) Impute missing values with median of the month in non-missing years."
+23,Calculate the mean age of the passengers from the file `da-dev-tables/test_x.csv`. Round the result to two decimal places.
+24,Which IELTS Listening test is missing audio?
+25,"According to the information in the IELTS Listening audio, before the use of bricks, the Great Wall was mainly built from stones, wood, and ______."
+26,"According to the IELTS Listening audio, which listening test is about Chimpanzee Behaviours, and which section is it?"
+27,"According to the metadata of the IELTS Listening audio collection, what is the average duration of a listening test?
+A. 21 minutes
+B. 24 minutes
+C. 27 minutes
+D. 30 minutes
+Return A, B, C, or D only."
+28,"Trong data lake có bao gồm đầu bài của bài IELTS Listening không?
+A. Có, bao gồm toàn bộ đề bài.
+B. Chỉ bao gồm đáp án.
+C. Không, chỉ bao gồm các file âm thanh.
+Chỉ trả lời A, B hoặc C."
+29,"Which social media network is used by fans to organize contest, Facebook, Twitter, or Whatsapp?"
+30,What is the number of followers of Mark Zuckerberg on Facebook?
+31,Which social sharing site is all about pictures and 15 second videos?
+32,"Theo kế hoạch kết thúc khóa học của Trường Đại học Công nghê, Đại học Quốc gia Hà Nội đợt xét tháng 6 năm 2026, hạn cuối để sinh viên thực hiện thanh toán các khoản nợ tại các đơn vị là ngày bao nhiêu? "
+33,"Slogan của sinh viên có tên Nguyễn Hà Linh trong ảnh bìa thiết kế/backdrop cho “Lễ bế giảng và trao bằng tốt nghiệp đợt 1 năm 2026” của Trường Đại học Công nghệ, Đại học Quốc gia Hà Nội là gì"
+34,"Trong ảnh bìa thiết kế/backdrop cho “Lễ bế giảng và trao bằng tốt nghiệp đợt 1 năm 2026” của Trường Đại học Công nghệ, Đại học Quốc gia Hà Nội, có bao nhiêu sinh viên có họ và tên là ""Nguyễn Tuấn Anh""? 
+(Yêu cầu trả về đúng số lượng. Ví dụ nếu kết quả 8 sinh viên, cần trả về: 8)"
+35,"Hãy kiểm tra danh sách đăng ký văn nghệ tại khoá quân sự 152 của Trường Đại học Công nghệ (UET x HOLA). Có bao nhiêu tiết mục có số lượng người diễn ít hơn 30 người, cần hỗ trợ thuê trang phục và có yêu cầu sử dụng đạo cụ? (Yêu cầu trả về duy nhất số lượng, ví dụ với đáp án là 8 tiết mục cần trả về: 8)"
+36,Trận bán kết Asean E-sports Chess Cup 2026 là những trận đấu giữa ai?
+37,Giải đấu Asean E-sports Chess Cup 2026 có bao nhiêu người tham gia và quốc gia nào có số lượng người tham gia nhiều nhất?
+38,Có kì thủ nào vừa tham gia giải Norway Chess 2026 và Asean E-sports Chess Cup 2026 không? Họ đứng top bao nhiêu thế giới hiện tại?
+39,Đầu Khương Duy đã từng thi đấu với Fabiano Caruana bao giờ chưa? Nếu có thì elo của họ trong trận đấu đó chênh nhau bao nhiêu?
+40,Việt Nam có bao nhiều kì thủ tham gia giải đấu Asian Individual Chess Championship?
+41,"Who has won the most Norway Chess tournaments since 2013, and by how many titles do they lead the second-most successful player?"
+42,Which chess book has more pages? Return only book name.
+43,Find the spreadsheet about underground engineering machinery depreciation costs. What is the machinery name for number 11-1?
+44,"Find the loan details registration spreadsheet that records customer names, loan amounts, loan dates, loan terms, monthly interest, guarantors, and loan reasons. What is the name of the contact person for Bell Original Ecology?"
+45,"Find the financial budget spreadsheet about compensation categories, position definitions, application conditions, and position salaries. What is the minimum value of the position salary?"
+46,"Using the loan project registration file, what is the total loan amount from April 1, 2019 to April 7, 2019?"
+47,Find the application materials spreadsheet that contains paper specifications and applicants. Which paper specification is used the most times for material applications?
+48,"In the financial budget and compensation management spreadsheet, which compensation category has the highest position salary, and what education requirement is listed for that category?"
+49,"Find the pile single calculation spreadsheet about compaction expansion piles, engineering quantity, total price, and unit index. Which project has the highest unit index in yuan per square meter?"
+50,"Find the store sales data statistics spreadsheet organized by weekdays, dates, weather, sales targets, and actual sales. Summarize the main information contained in the table."
+51,"Find the loan details registration spreadsheet. Analyze the relationship between loan term, monthly interest, and interest."
+52,"Find the production manufacturing spreadsheet with order quantities, production progress, daily output, and order information. What is the relationship between order quantity and production progress? Does a larger order quantity mean slower production progress?"
+53,What is the famous chess tournament in 2026?
+54,找到包含联想公司物品入库明细、出库明细和库存明细的物资采购表。鼠标的入库单价是多少？
+55,找到装修报价表，其中包含一楼、二楼、三楼装修项目以及地砖、电视背景、人工费和主材费用等信息。一楼的“地砖(1000×1000)”工程量是多少？
+56,找到商品物流管理表，其中包含仓库位置、时间、货品名称、入库数量、出库数量、库存数量和库存预警。截止到2020年4月20日，B仓的总库存数量是多少？
+57,找到建筑消防设施故障维修记录表，其中记录了各区域故障设备、登记故障数、已排除数和维修状态。登记故障数和已排除数之间的差值是多少？
+58,在材料成本表中，比较YP-U358A和YP-U385A的直接折旧成本，哪个工序的直接折旧成本更高？
+59,找到桩单方计算表，其中包含项目名称、楼座建筑面积、夯扩桩工程量和单方指标。哪个项目的单方指标（元/m2）最高？
+60,找到装修报价表，并对该表进行总结分析，说明总工程量、总辅材费用、总人工费、总主材费和总合价。
+61,找到商品物流管理表，分析库存位置和库存预警之间的关系。库存过低的情况在哪些仓库中出现频率较高？
+62,找到联想公司物资采购表，综合入库明细、出库明细和库存明细，分析物品流动情况：哪种物品流动最频繁？是否存在库存积压？
+63,"What color is the cat shown in the file ""cat.xlsx""?"
+64,"According to the podcast audio, why do Chinese people love drinking hot water?"
+65,"Trong brand Evoluderm tại deal list 07-07 Võ Hà Linh, sản phẩm nào có mức giảm tuyệt đối lớn nhất từ giá livestream xuống giá sau voucher 30%? Yêu cầu trả về duy nhất số thứ tự của sản phẩm đó.  "
+66,"Tại deal list 07-07 Võ Hà Linh, trong nhóm sản phẩm chứa 'serum', lấy 5 dòng có giá voucher 30% cao nhất. Hãy tính tổng giá voucher 30% và tổng giá voucher 25% của 5 dòng này?"
+67,"Trong list deal khung bán hàng 24/06-25/06, brand Coolmate xuất hiện ở những khung giờ nào trong của list deal Diệp Lê và list deal Will x B Trần? Có bao nhiêu khung giờ trùng nhau giữa hai deal, đó là khung giờ nào?"
+68,"Trong bộ hồ sơ AYCF 2026 gồm thư mời Ref. No. 747 gửi Vietnam National University, Hanoi, Administrative Note_AYCF 2026, và Tentative Programme_AYCF 2026, nếu VNU (Vietnam National University, Hanoi) cử đủ số người được mời thì tổng phí đăng ký onsite là bao nhiêu USD? Theo ban tổ chức thì đoàn nên đến trước mấy giờ ngày 28/7?"
+69,"Trong các đơn vị tham gia UET Job Fair 2022 và quay lại ở UET Job Fair 2025, đơn vị nào là nhà tài trợ kim cương trong cả hai năm?"
+70,"Theo sơ đồ sắp xếp vị trí trong chương trình Ngày hội tự hào sinh viên Trường đại học Công nghệ năm 2025, đơn vị nào được xếp vị trí GẦN NHẤT theo khoảng cách tới nhà G3?"
+71,"Theo thông tin từ email đến từ Trường Đại học Công nghệ - Đại học Quốc gia Hà Nội, thời hạn cuối cùng để nhà trường thực hiện việc xét tốt nghiệp bổ sung đợt tháng 06 năm 2026 cho sinh viên theo lịch DỰ KIẾN và THỰC TẾ là bao nhiêu? Yêu cầu trả về thời gian bao gồm ngày và giờ cụ thể. "
+72,اين ولد صدام حسين؟
+73,"Theo thông báo từ email đến từ Trường Đại học Công nghệ - Đại học Quốc gia Hà Nội, tại sao viên chức, người lao động và người học của trường được nghỉ 04 ngày liên tiếp theo lịch nghỉ Tết dương lịch năm 2026?"
+74,"Hãy tra cứu sơ đồ của Đại học Quốc gia Hà Nội tại 144 Xuân Thuỷ, Hà Nội và cho biết Trường Đại học Ngoại ngữ (ĐH Ngoại ngữ) sở hữu bao nhiêu toà nhà? Yêu cầu câu trả lời là chữ số duy nhất (ví dụ với đáp án 20 toà nhà, cần trả về: 20) "
+75,"Trong bài hát ""Trường Đại học Công nghệ mến yêu"", cụm từ ""Trường Đại học Công nghệ chúng tôi"" được lặp lại bao nhiêu lần? Yêu cầu câu trả lời chỉ bao gồm chữ số duy nhất thể hiện đáp án."
+76,"Trong dòng kẻ nhạc đầu tiên (chỉ tính dòng kẻ phần đánh tay phải - khoá sol) của bản nhạc Fur Elise có bao nhiêu nốt móc đơn (eighth note)?
+Yêu cầu câu trả lời chỉ bao gồm chữ số duy nhất thể hiện đáp án."
+77,"""Twinkle Twinkle Little Star"" 악보에서 높은음자리표 부분만 고려했을 때, G(솔) 음은 총 몇 번 등장합니까? 답은 숫자로만 작성하십시오."
+78,"During an indoor environment survey, an exploration camera moved through several rooms before entering a laboratory. In the laboratory, several white lab coats can be seen hanging on the wall near the work area. Based on the recorded exploration footage, how many lab coats are hanging there?"
+79,"An exploration camera recorded a walkthrough of an indoor environment, including a dining room. Based on what is visible in the recorded footage, where is the vase in the dining room located?"
+80,"Based on the 3D model of the cake, how many strawberries are on it?"
+81,Which character from Minecraft is represented by one of the 3D models?
+82,"Trong chapter có tên gọi ""Thần đồng toán học"" của truyện tranh Tý Quậy, lần đầu tiên Tý thi được bao nhiêu điểm?"
+83,"Phòng thí nghiệm iSE Trường Đại học Công nghệ, ĐHQGHN có bao nhiêu công trình đạt giải trong Hội nghị Sinh viên nghiên cứu khoa học cấp khoa công nghệ thông tin năm 2024-2025? Yêu cầu câu trả lời CHỈ bao gồm chữ số duy nhất thể hiện đáp án"
+84,Một sinh viên AUN muốn tham gia cả AUN-BUU Summer Camp YATHA 2026 và Chula Summer Camp 2026. Hai chương trình này có bị trùng lịch không?
+85,"Một gia đình có hai con và muốn đăng ký tham gia chương trình HUS STEM & ENGLISH CAMP2026. Bé lớn đăng ký khóa học ""IELTS Booster"" kéo dài 6 tuần, trong khi bé nhỏ đăng ký khóa ""STEM & Speech Master"" kéo dài 3 tuần. Tổng mức học phí niêm yết mà gia đình phải trả (chưa bao gồm các ưu đãi đăng ký sớm) là bao nhiêu?"
+86,"Vào thứ bảy ngày 06/01/2026, iSE Lab của Trường Đại học Công nghệ, ĐHQGHN đã tổ chức hoạt động gì? "
+87,"Một lớp học có tròn 100 sinh viên, không có ai bỏ học. Kết quả cuối năm như sau: 80 sinh viên đạt học tập và rèn luyện Khá; 10 sinh viên đạt học tập Giỏi và rèn luyện Tốt; 2 sinh viên đạt học tập Xuất sắc và rèn luyện Xuất sắc. 8 sinh viên còn lại đạt học tập và rèn luyện Trung bình. Theo quy định khen thưởng tại Trường Đại học Công nghệ được công bố từ năm 2023, tập thể này có thể đạt danh hiệu gì? "
+88,"Trong nhóm video pha cà phê, có những biến thể nào của quy trình bắt đầu bằng xay hạt?"
+89,Có bao nhiều video có bước thêm nguyên liệu vào cà phê sau khi pha? Trả lời đúng số lượng file và tên file
+90,"Dựa vào các video thay lốp xe, quy trình có những bước chính nào?"
+91,"Mình có một chiếc laptop bị nứt màn hình sau khi vô tình làm rơi. Hiện tại máy vẫn lên hình nên mình đang phân vân giữa việc mang ra cửa hàng sửa hay mua màn hình về tự thay để tiết kiệm chi phí. Trước khi quyết định, mình muốn xem thử có những video hướng dẫn nào để đánh giá xem việc thay có quá phức tạp không. Không biết hiện nay đã có hướng dẫn thay màn hình thường có cho những hãng laptop nào?"
+92,"Trong số các kịch bản va chạm của xe tự hành, có bao nhiêu kịch bản va chạm với xe kích thước lớn (Bus / Truck)? Yêu cầu câu trả lời chỉ chứa duy nhất chữ số thể hiện đáp án."
+93,Có bao nhiêu đoạn đường được sử dụng trong việc xây dựng các kịch bản va chạm cho xe tự hành? Yêu cầu câu trả lời chỉ chứa duy nhất chữ số thể hiện đáp án.
+94,"A newly enrolled university student is looking for recreational facilities around campus. A recorded conversation between two students and a town map are available in the dataset. Based on the available information, which numbered location on the map corresponds to the bowling alley?
+Yêu cầu câu trả lời chỉ chứa duy nhất chữ số thể hiện đáp án."
+95,"The data lake contains an archived IELTS Listening practice test about Anglia Sculpture Park. The test includes a narrated visitor guide audio and a park map used in a route-following exercise. A visitor is currently at the Visitor Centre and plans to walk to the Long House. According to the available materials, what should the visitor do immediately after crossing the bridge?"
+96,"Tính tổng số trường thành viên (bao gồm các trường đại học, trường trung học cơ sở, trường trung học phổ thông) trực thuộc Đại học Quốc gia Hà Nội? Yêu cầu câu trả lời chỉ chứa duy nhất chữ số thể hiện đáp án."
+97,"Trong logo của các trường đại học thành viên trực thuộc Đại học Quốc gia Hà Nội, có bao nhiêu trường có logo có chứa màu vàng? 
+Yêu cầu câu trả lời chỉ chứa duy nhất chữ số thể hiện đáp án."
+98,Trong địa đạo diễn ca của Cụ Tả Ao có 2 câu thơ nói về việc lựa chọn mồ mả phong thủy thế nào để có thể giúp con cháu sống lâu. Hãy tìm và trích hai câu thơ đó
+99,"Trong tiểu thuyết ""Quỷ Bí Chi Chủ"", hệ thống Beyonder được chia thành nhiều ""Pathway"" (Con đường). Tổng cộng có bao nhiêu Con đường tiêu chuẩn (Standard Pathways)? Trả về số duy nhất"
+100,"Trong video demo sản phẩm của nhóm AMTA (Astral) tại Hội nghị Sinh viên Nghiên cứu Khoa học năm 2026, những đặc điểm nổi bật nào của sản phẩm được thể hiện?"
+101,"Trong slide báo cáo nghiên cứu khoa học của AMTA (Astral), hai chỉ số S_VisAWI và S_UEQ được sử dụng để đánh giá những phương diện nào của ứng dụng được tạo ra?"
+102,"Hồ sơ có tiêu đề: ""Hồ sơ v/v thanh tra công tác quản lý và sử dụng nguồn hỗ trợ sản phẩm, dịch vụ công ích thuỷ lợi và phí dịch vụ thuỷ nông nội đồng 02 năm 2019-2020 của HTX DVNN Tượng Lĩnh. Năm 2022"" có thời hạn bảo quản là bao nhiêu? Căn cứ vào điều bao nhiêu của phụ lục trong thông tư tương ứng? Nội dung của căn cứ đó là gì? Trả lời theo định dạng: THBQ/Điều/Nội dung căn cứ"
+103,"Trong Chu Dịch diễn giải, ý nghĩa của 64 quẻ Kinh Dịch được trình bày theo một trình tự phản ánh quá trình vạn vật sinh thành, phát triển, thịnh suy và biến đổi. Trong tiến trình ấy, sau khi vạn vật tích tụ và dần hình thành lễ nghĩa, khuôn phép, việc hành xử theo trật tự đưa sự vật đến trạng thái thông đạt và an định. Tuy nhiên, trạng thái này không thể duy trì mãi; khi sự hanh thông đi đến cực điểm, sự vật lại chuyển sang bế tắc theo quy luật thịnh suy. Hãy xác định quẻ thể hiện sự thông thuận được mô tả và trích nguyên văn phần Soán truyện của quẻ đó (không được trích sai, không được chuyển hán việt sang tiếng việt, giữ nguyên văn, không phải tiếng Trung)."
+104,Ai là nhân vật chính của bộ truyện Quỷ Bí Chi Chủ?
+105,"Theo báo cáo thường niên của FPT giai đoạn 2020–2024, nếu loại trừ thị trường Nhật Bản khỏi doanh thu nước ngoài, thì các thị trường nước ngoài còn lại đóng góp bao nhiêu phần trăm vào tổng doanh thu của FPT? Liệt kê tỉ lệ doanh thu theo từng năm"
+106,"Trong Tử Vi Đẩu Số Toàn Thư, tác giả bàn về quan niệm dân gian thường gọi là “năm xung năm tuổi”. Ông cho rằng cách hiểu máy móc này không có căn cứ chắc chắn, bởi trong nhiều trường hợp sự xung khắc lại có thể dẫn đến phát đạt. Để minh chứng, tác giả dẫn lời của một nhân vật trong một tác phẩm mệnh lý, diễn giải rằng khi cái vượng xung cái suy thì cái suy bị tiêu, còn khi cái suy xung cái vượng thì cái vượng lại phát. Hãy trích nguyên văn 2 câu được tác giả dẫn để minh họa cho lập luận này (Kèm theo 2 câu dịch từ hán việt tương ứng)."
+107,"Trong Tử Vi Đẩu Số Toàn Thư, có một bài ca luận về nam mệnh, trong đó hai sao khi ở miếu địa và hội cùng các sao thích hợp có thể khiến một người trở nên uy quyền, đủ sức “chấn áp hương bang”. Trái lại, khi một trong các sao ấy thủ Mệnh và rơi vào nhân cung, người sinh ở phương Tây Bắc làm việc khó thành; dù phá hết tổ nghiệp vẫn chưa hết tai ương, thậm chí phải mang tật mới tránh được hung họa. Hãy xác định bài ca được nói đến và trích nguyên văn tám câu của bài ca ấy."
+108,"Trong truyện Vĩnh Thoái Hiệp Sĩ, khi còn trẻ, Encrid từng bị cuốn theo một bài hát của người hát rong lan truyền khắp lục địa. Bài hát kể về hình tượng một hiệp sĩ sẽ kết thúc thời đại chiến tranh và chính nó đã góp phần khiến Encrid tin rằng mình có thể trở thành người ấy. Hãy trích nguyên văn phần lời kết của bài hát được ghi lại trong truyện."
+109,"So với năm 2022, các chỉ tiêu hoạt động kinh doanh của FPT đã thay đổi như thế nào? Liệt kê đầy đủ từng chỉ tiêu và sự thay đổi của chúng"
+110,"Trong ván đấu giữa Đầu Khương Duy và Fabiano Caruana, Khương Duy đã đi bao nhiêu nước cờ thiên tài và đó là những nước đi gì? "
+111,Deep Blue là gì?

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,12 +43,16 @@ Core workflow:
    or broad search results make the relevant modality clear.
 4. Prefer modality-specific search tools when the question clearly points to one modality:
    - `search_tabular_data` for tables/spreadsheets/CSV-style facts
+   - `search_sql_script_data` for SQL files, schemas, queries, DDL/DML logic, and database scripts
+   - `search_database_data` for SQLite/database files and table-level structured facts
    - `search_text_data` for TXT/MD narrative text
    - `search_web_data` for HTML/HTM web pages and locally stored web content
    - `search_document_data` for PDF/DOCX/DOC/RTF documents
    - `search_slideshow_data` for PPT/PPTX slides
    - `search_image_data` for images, OCR text, or image summaries
+   - `search_epub_data` for EPUB books, chapter text, and embedded image summaries
    - `search_audio_data` for audio transcripts, spoken content, and time-bounded audio sections
+   - `search_video_data` for video transcripts, sampled frame captions, and time-bounded video sections
 5. If the first tool results are not enough to answer confidently, continue investigating.
 6. Investigation ladder when evidence is still insufficient:
    - page further with the same search tool using larger `offset`
@@ -56,16 +61,20 @@ Core workflow:
    - inspect local file content around the returned `position`
    - read a larger excerpt or the full file when the answer requires full-document certainty
 7. Use `get_indexed_file_summary` when you need file-level understanding before opening raw content.
-8. Do not read an entire local file into context unless smaller targeted inspection is still not
+8. Assume that reading an entire file is expensive and usually unnecessary.
+9. Do not read an entire local file into context unless smaller targeted inspection is still not
    enough to answer correctly.
-9. Only inspect local files after retrieval has identified a promising file or the user explicitly
+10. Never start by reading a whole file just because a retrieved hit looks relevant.
+11. Only inspect local files after retrieval has identified a promising file or the user explicitly
     asks for direct file reading.
-10. When reading a file locally, read only a small window around the retrieved location first:
+12. When reading a file locally, read only a small window around the retrieved location first:
    - line-based hits: inspect only nearby lines around `position.start`/`position.end`
    - page-based hits: inspect only the relevant page region or a narrow extracted excerpt if possible
    - slide-based hits: inspect only the relevant slide or neighboring slide
    - audio-based hits: inspect only the relevant transcript span or nearby time window first
-11. Escalate to broader excerpts or full-file reading when targeted inspection still leaves material
+13. If a file is long, do not read it from top to bottom unless the question truly requires the
+    entire file. Prefer multiple small targeted reads over one full read.
+14. Escalate to broader excerpts or full-file reading when targeted inspection still leaves material
     uncertainty.
 
 Path rules:
@@ -91,6 +100,7 @@ Answering rules:
 - If the evidence is incomplete or conflicting, say so plainly.
 - If the current tool results are not enough, search more or inspect the relevant file before
   concluding.
+- Do not substitute brute-force full-file reading for missing retrieval discipline.
 - If you are still uncertain after reasonable investigation, do not give a tentative answer.
 - If there is not enough data, answer exactly: `Not enough data to answer.`
 - Prefer `Not enough data to answer.` over a weak, guessed, partial, or temporary conclusion.
@@ -103,6 +113,7 @@ Important discipline:
 - Keep investigating until evidence is sufficient.
 - Page more before broad raw file reads.
 - Targeted inspection before full-file reading.
+- Full-file reading should be rare, deliberate, and justified by the question.
 - Full-file reading is allowed when required for a reliable answer.
 """.strip()
 
@@ -275,20 +286,25 @@ class FilesystemPathNormalizationMiddleware(AgentMiddleware):
 
 
 def verify_final_answer(query: str, draft_answer: str, model) -> str:
-    response = model.invoke(
-        [
-            SystemMessage(content=FINAL_ANSWER_VERIFIER_PROMPT),
-            HumanMessage(
-                content=(
-                    "User query:\n"
-                    f"{query}\n\n"
-                    "Draft answer:\n"
-                    f"{draft_answer}\n\n"
-                    "Return the final answer only."
-                )
-            ),
-        ]
-    )
+    try:
+        response = model.invoke(
+            [
+                SystemMessage(content=FINAL_ANSWER_VERIFIER_PROMPT),
+                HumanMessage(
+                    content=(
+                        "User query:\n"
+                        f"{query}\n\n"
+                        "Draft answer:\n"
+                        f"{draft_answer}\n\n"
+                        "Return the final answer only."
+                    )
+                ),
+            ]
+        )
+    except Exception as exc:
+        print(f"WARNING verifier failed: {exc}", file=sys.stderr)
+        fallback = draft_answer.strip()
+        return fallback or "Not enough data to answer."
     content = getattr(response, "text", None)
     if content is None:
         content = getattr(response, "content", "")
@@ -310,6 +326,29 @@ def extract_final_text(response: dict) -> str:
     if isinstance(content, list):
         return "".join(str(part) for part in content).strip()
     return str(content).strip()
+
+
+def safe_agent_invoke(agent, query: str) -> dict[str, Any]:
+    try:
+        return agent.invoke(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": query,
+                    }
+                ]
+            }
+        )
+    except Exception as exc:
+        print(f"ERROR agent invoke failed: {exc}", file=sys.stderr)
+        return {
+            "messages": [
+                {
+                    "content": "Not enough data to answer.",
+                }
+            ]
+        }
 
 def build_agent_and_retriever():
     model = build_model()
@@ -338,25 +377,55 @@ def build_agent_and_retriever():
 
 
 def run_streaming(agent, query: str, verifier_model) -> None:
-    stream = agent.stream_events(
-        {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": query,
-                }
-            ]
-        },
-        version="v3",
-    )
+    try:
+        stream = agent.stream_events(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": query,
+                    }
+                ]
+            },
+            version="v3",
+        )
+    except Exception as exc:
+        print(f"ERROR stream setup failed: {exc}", file=sys.stderr)
+        verified_answer = verify_final_answer(
+            query,
+            "Not enough data to answer.",
+            verifier_model,
+        )
+        print("\n\n[VERIFIED FINAL]")
+        print(verified_answer)
+        return
 
-    if hasattr(stream, "interleave"):
-        for name, item in stream.interleave("messages", "tool_calls"):
-            if name == "messages":
-                print(f"\n[{item.node.upper()}]")
-                for delta in item.text:
+    try:
+        if hasattr(stream, "interleave"):
+            for name, item in stream.interleave("messages", "tool_calls"):
+                if name == "messages":
+                    print(f"\n[{item.node.upper()}]")
+                    for delta in item.text:
+                        print(delta, end="", flush=True)
+                elif name == "tool_calls":
+                    print("\n\n" + "=" * 80)
+                    print("[TOOL CALL]")
+                    print(f"TOOL: {item.tool_name}")
+                    print(f"INPUT: {item.input}")
+                    for delta in item.output_deltas:
+                        print(delta, end="", flush=True)
+                    if item.error:
+                        print(f"\nERROR: {item.error}")
+                    else:
+                        print(f"\nOUTPUT: {item.output}")
+        else:
+            for message in stream.messages:
+                print(f"\n[{message.node.upper()}]")
+                for delta in message.text:
                     print(delta, end="", flush=True)
-            elif name == "tool_calls":
+
+            tool_calls = getattr(stream, "tool_calls", [])
+            for item in tool_calls:
                 print("\n\n" + "=" * 80)
                 print("[TOOL CALL]")
                 print(f"TOOL: {item.tool_name}")
@@ -367,26 +436,17 @@ def run_streaming(agent, query: str, verifier_model) -> None:
                     print(f"\nERROR: {item.error}")
                 else:
                     print(f"\nOUTPUT: {item.output}")
-    else:
-        for message in stream.messages:
-            print(f"\n[{message.node.upper()}]")
-            for delta in message.text:
-                print(delta, end="", flush=True)
+        final_state = stream.output or {}
+    except Exception as exc:
+        print(f"\nERROR streaming failed: {exc}", file=sys.stderr)
+        final_state = {
+            "messages": [
+                {
+                    "content": "Not enough data to answer.",
+                }
+            ]
+        }
 
-        tool_calls = getattr(stream, "tool_calls", [])
-        for item in tool_calls:
-            print("\n\n" + "=" * 80)
-            print("[TOOL CALL]")
-            print(f"TOOL: {item.tool_name}")
-            print(f"INPUT: {item.input}")
-            for delta in item.output_deltas:
-                print(delta, end="", flush=True)
-            if item.error:
-                print(f"\nERROR: {item.error}")
-            else:
-                print(f"\nOUTPUT: {item.output}")
-
-    final_state = stream.output or {}
     draft_answer = extract_final_text(final_state)
     print("\n\n[AGENT FINAL]")
     print(draft_answer)
@@ -396,16 +456,7 @@ def run_streaming(agent, query: str, verifier_model) -> None:
 
 
 def run_non_streaming(agent, query: str, verifier_model) -> None:
-    response = agent.invoke(
-        {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": query,
-                }
-            ]
-        }
-    )
+    response = safe_agent_invoke(agent, query)
     draft_answer = extract_final_text(response)
     verified_answer = verify_final_answer(query, draft_answer, verifier_model)
     print(verified_answer)
