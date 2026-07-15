@@ -22,6 +22,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--drive-url", default=DEFAULT_DRIVE_FOLDER_URL)
     parser.add_argument("--data-dir", default="/content/lakeagent-data")
+    parser.add_argument(
+        "--mounted-drive-path",
+        help=(
+            "Path to the shared Data Lake after mounting Google Drive, for example "
+            "/content/drive/MyDrive/LakeAgent-Data. When set, gdown is not used."
+        ),
+    )
     parser.add_argument("--output-path", default="/content/documents.jsonl")
     parser.add_argument("--prefix", default="")
     parser.add_argument("--force-download", action="store_true")
@@ -35,15 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    data_dir = Path(args.data_dir).expanduser().resolve()
+    data_dir = Path(args.mounted_drive_path or args.data_dir).expanduser().resolve()
     output_path = Path(args.output_path).expanduser().resolve()
 
     _configure_openrouter()
-    _download_drive_folder(
-        args.drive_url,
-        data_dir,
-        force=args.force_download,
-    )
+    if args.mounted_drive_path:
+        _validate_mounted_folder(data_dir)
+    else:
+        _download_drive_folder(
+            args.drive_url,
+            data_dir,
+            force=args.force_download,
+        )
     os.environ["DATALAKE_DIR"] = str(data_dir)
 
     from lake_agent.cli.index_document_offline import main as offline_main
@@ -115,18 +125,38 @@ def _download_drive_folder(url: str, destination: Path, *, force: bool) -> None:
         return
 
     destination.mkdir(parents=True, exist_ok=True)
-    downloaded = gdown.download_folder(
-        url=url,
-        output=str(destination),
-        quiet=False,
-        use_cookies=False,
-        remaining_ok=True,
-    )
+    try:
+        downloaded = gdown.download_folder(
+            url=url,
+            output=str(destination),
+            quiet=False,
+            use_cookies=False,
+            remaining_ok=True,
+        )
+    except Exception as exc:
+        raise SystemExit(
+            "gdown could not download every file in the shared folder. A child file may "
+            "not be public or Google Drive may be rate-limiting downloads. Mount Drive, "
+            "add the shared folder as a MyDrive shortcut, and rerun with "
+            "--mounted-drive-path. Original error: "
+            f"{exc}"
+        ) from exc
     if not downloaded:
         raise SystemExit(
             "Google Drive folder download returned no files. Ensure the folder is "
             "shared as 'Anyone with the link' and rerun with --force-download."
         )
+
+
+def _validate_mounted_folder(path: Path) -> None:
+    if not path.exists() or not path.is_dir():
+        raise SystemExit(
+            f"Mounted Data Lake folder not found: {path}. Mount Google Drive first and "
+            "check the shortcut name under /content/drive/MyDrive."
+        )
+    if not any(path.iterdir()):
+        raise SystemExit(f"Mounted Data Lake folder is empty: {path}")
+    print(f"Using authenticated mounted Drive folder: {path}")
 
 
 if __name__ == "__main__":
